@@ -43,6 +43,6 @@ export type PreviewLinkErrorData = {
   brand: PreviewBarBrand
   /** `true` for an unknown or expired link (404); `false` when links couldn't be read (503). */
   expired: boolean
-  /** Where "Go to <brand>" leads; defaults to `/`. */
-  home?: string
+  /** Where "Open Studio" leads; defaults to `/studio`. */
+  studioPath?: string
 }

@@ -98,7 +98,7 @@ export function PreviewBarFrame({data}: {data: PreviewBarData}) {
 export function PreviewLinkErrorFrame(props: PreviewLinkErrorData) {
   const ref = useMounted(
     ({mountPreviewLinkError}, element) => mountPreviewLinkError(element, props),
-    [props.expired, props.brand, props.home],
+    [props.expired, props.brand, props.studioPath],
   )
   return <div ref={ref} />
 }

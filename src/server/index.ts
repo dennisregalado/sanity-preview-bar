@@ -52,6 +52,8 @@ export type PreviewBarOptions = {
   brand: PreviewBarBrand
   /** Where the embedded Studio lives. Default `/studio`. */
   studioPath?: string
+  /** The Sanity project ID for the workspace menu's links. Default: the client's `projectId`. */
+  projectId?: string
   /** The bar's route. Default `/preview-bar`. */
   basePath?: string
   /** Link search; `false` or omitted hides the search button. */
@@ -85,6 +87,8 @@ export type PreviewClient = {
     params?: Record<string, unknown>,
     options?: {tag?: string},
   ): Promise<R>
+  /** `SanityClient#config()`, read for the project ID when `projectId` isn't set. */
+  config?(): {projectId?: string}
 }
 
 /** The request's preview state, as the framework adapter knows it. */
@@ -190,6 +194,7 @@ export function createPreviewBar(options: PreviewBarOptions) {
     return {
       brand: options.brand,
       studioPath,
+      projectId: options.projectId ?? ctx.client.config?.().projectId ?? null,
       basePath,
       releases: releasesResult.status === 'fulfilled' ? activeReleases(releasesResult.value) : [],
       releasesError: releasesResult.status === 'rejected',

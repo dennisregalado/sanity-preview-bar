@@ -25,6 +25,7 @@ import {PerspectiveMenu, studioPerspectiveParams} from './PerspectiveMenu'
 import {SearchDialog} from './SearchDialog'
 import {StudioMenuItem} from './StudioMenuItem'
 import {StudioTooltip} from './StudioTooltip'
+import {WorkspaceMenu} from './WorkspaceMenu'
 
 export type {PreviewBarData}
 
@@ -433,9 +434,9 @@ function MoreMenu({setOverflow}: {setOverflow: SetOverflow}) {
 }
 
 /**
- * The Studio navbar's brand: `HomeButton` (the mark, 22×23 like `MainIcon`, centred in a 25px
- * `LogoMarkContainer`) and, 4px on, the workspace title as a bleed `padding={2}` button. Both open
- * the Studio.
+ * The Studio navbar's brand: `HomeButton` (the mark in a 25px `LogoMarkContainer`, opening the
+ * Studio) and, 4px on, `WorkspaceMenuButton` (the workspace title and chevron, opening the
+ * workspace menu).
  */
 function Brand({
   showTitle,
@@ -456,16 +457,19 @@ function Brand({
         aria-label="Open Sanity Studio"
         className="preview-bar-home"
       >
-        <Flex align="center" justify="center" style={{width: 25, height: 25}}>
+        <Flex
+          align="center"
+          justify="center"
+          style={{width: 25, height: 25, borderRadius: 3, overflow: 'hidden'}}
+        >
           {brand.logo && <Logo logo={brand.logo} />}
         </Flex>
       </a>
       {showTitle && (
-        <Button as="a" href={studioPath} target="_blank" rel="noopener" mode="bleed" padding={2}>
-          <Text size={1} weight="medium" textOverflow="ellipsis">
-            {brand.title}
-          </Text>
-        </Button>
+        <WorkspaceMenu
+          onOpenChange={(open) => setOverflow('workspace-menu', open)}
+          onHoverChange={(hovered) => setOverflow('workspace-button', hovered)}
+        />
       )}
       {/* The Studio navbar's search button, with its "Search ⌘K" tooltip. */}
       {search && (

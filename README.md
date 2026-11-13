@@ -10,6 +10,9 @@ Shopify theme preview, made of the Studio's own parts.
   URL.
 - **Link search (⌘K):** the Studio's search over the pages you configure, with its virtualized list,
   previews and status dots. Picking a result navigates the site.
+- **Workspace menu:** the Studio's own: the title and chevron open the project name, the workspace
+  title, and "Manage project" / "Invite members" on sanity.io (the project ID comes from your
+  Sanity client, or set `projectId`).
 - **Visual Editor, Hide bar, Exit preview:** exit leaves preview in place, with no reload.
 
 Everything is `@sanity/ui`, rendered in a same-origin iframe, so the bar's styles and the site's never
@@ -49,6 +52,8 @@ export const previewBar = createSvelteKitPreviewBar({
       title: 'Acme',
       // Inline SVG (fill="currentColor" follows the bar's colours) or an image URL.
       logo: '<svg viewBox="0 0 24 24" width="22" height="23"><circle cx="12" cy="12" r="10" fill="currentColor"/></svg>',
+      // The Sanity project's name, shown above the title in the workspace menu.
+      project: 'Acme Website',
     },
     studioPath: '/studio',
     search: {

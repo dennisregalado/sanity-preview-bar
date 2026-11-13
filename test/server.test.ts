@@ -62,6 +62,16 @@ describe('loadBar', () => {
     expect(data?.releases.map((r) => r._id)).toEqual(['_.releases.rSpring'])
   })
 
+  test('the project ID comes from the client, unless set', async () => {
+    const withConfig = {...(fakeClient() as object), config: () => ({projectId: 'p1'})}
+    const context = ctx({}, {client: withConfig as unknown as PreviewContext['client']})
+    expect((await createPreviewBar({brand}).loadBar(context))?.projectId).toBe('p1')
+    expect((await createPreviewBar({brand, projectId: 'p2'}).loadBar(context))?.projectId).toBe(
+      'p2',
+    )
+    expect((await createPreviewBar({brand}).loadBar(ctx()))?.projectId).toBeNull()
+  })
+
   test('without links, sharing is never read and stays off', async () => {
     const bar = createPreviewBar({brand})
     const context = ctx()

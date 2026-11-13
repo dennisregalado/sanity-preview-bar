@@ -6,10 +6,15 @@ export type PreviewBarBrand = {
   /** The workspace title, e.g. "Acme". */
   title: string
   /**
-   * The mark beside it, drawn 22×23 like the Studio's: inline `<svg …>` markup (use
+   * The mark beside it, drawn like the Studio's workspace icon: inline `<svg …>` markup (use
    * `fill="currentColor"` to follow the bar's text colour) or an image URL.
    */
   logo?: string
+  /**
+   * The Sanity project's name, shown above the title in the workspace menu (the Studio reads it
+   * from the management API with the editor's session, which the bar doesn't have).
+   */
+  project?: string
 }
 
 /** Everything the framed bar renders from. Serializable: the server hands it to the page. */
@@ -17,6 +22,8 @@ export type PreviewBarData = {
   brand: PreviewBarBrand
   /** Where the embedded Studio lives, e.g. `/studio`. */
   studioPath: string
+  /** The Sanity project ID, for the workspace menu's "Manage project" and "Invite members". */
+  projectId: string | null
   /** The bar's route; its endpoints live under it. */
   basePath: string
   releases: ReleaseDocument[]

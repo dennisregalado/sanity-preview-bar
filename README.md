@@ -16,7 +16,7 @@ Everything is `@sanity/ui`, rendered in a same-origin iframe, so the bar's style
 meet, and **React and Sanity UI never load outside preview mode**. The site side is a small
 dependency-free module.
 
-Adapters: **SvelteKit** (below). Next.js is next.
+Adapters: **[SvelteKit](#sveltekit)** and **[Next.js](#nextjs-app-router)** (App Router).
 
 ## Install
 
@@ -24,8 +24,9 @@ Adapters: **SvelteKit** (below). Next.js is next.
 npm install sanity-preview-bar
 ```
 
-Peer dependencies: `react`, `react-dom`, `styled-components` and `@sanity/client`; SvelteKit sites
-also use `@sanity/sveltekit`.
+Peer dependencies: `react`, `react-dom` and `styled-components`. SvelteKit sites use
+`@sanity/sveltekit`; Next.js sites use `next-sanity`'s draft mode. Any `@sanity/client` version works:
+the bar only calls `withConfig` and `fetch`.
 
 ## SvelteKit
 
@@ -205,6 +206,94 @@ The host is a few KB with no dependencies, and loads only in preview.
 - Add `Disallow: /p/` to `robots.txt`.
 - Links are minted only while an editor has **Share this preview** on in Presentation; while it's off
   the button opens Presentation instead.
+
+## Next.js (App Router)
+
+The adapter expects `next-sanity`'s draft mode (`defineEnableDraftMode`) and reads the same
+`sanity-preview-perspective` cookie as `resolvePerspectiveFromCookies`, so the bar and Presentation
+stay in step.
+
+### 1. Configure the bar
+
+```ts
+// lib/sanity/preview-bar.ts
+import {getCloudflareContext} from '@opennextjs/cloudflare' // or your KV/Redis client
+import {createPreviewBar, kvStore} from 'sanity-preview-bar/server'
+import {createNextPreviewBar} from 'sanity-preview-bar/next'
+import {client} from '@/sanity/lib/client'
+import {token} from '@/sanity/lib/token'
+
+export const PREVIEW_BAR_BRAND = {title: 'Acme', logo: 'https://…/mark.png'}
+
+export const previewBar = createNextPreviewBar({
+  client: client.withConfig({token}),
+  bar: createPreviewBar({
+    brand: PREVIEW_BAR_BRAND,
+    studioPath: '/studio',
+    search: {routes: [{title: 'Homepage', path: '/'}], types: [/* as for SvelteKit */]},
+    links: {store: () => kvStore(getCloudflareContext().env.PREVIEW_LINKS)},
+  }),
+})
+```
+
+### 2. Routes
+
+Put them in a route group with its own bare root layout (`<html><body>{children}</body></html>`), so
+no site CSS, fonts or providers load in the bar's frame.
+
+```ts
+// app/(preview)/preview-bar/[action]/route.ts
+export const {GET, POST} = previewBar.handlers
+
+// app/(preview)/preview-bar/open/[code]/route.ts
+export const GET = previewBar.openLink
+```
+
+```tsx
+// app/(preview)/preview-bar/page.tsx
+import {PreviewBarFrame} from 'sanity-preview-bar/next/client'
+export const dynamic = 'force-dynamic'
+export default async function Page() {
+  return <PreviewBarFrame data={await previewBar.loadBar()} />
+}
+
+// app/(preview)/p/[code]/page.tsx: live links redirect into draft mode, dead ones 404
+import {PreviewLinkErrorFrame} from 'sanity-preview-bar/next/client'
+export const dynamic = 'force-dynamic'
+export default async function Page({params}: {params: Promise<{code: string}>}) {
+  await previewBar.checkLink((await params).code)
+  return <PreviewLinkErrorFrame brand={PREVIEW_BAR_BRAND} expired={false} />
+}
+
+// app/(preview)/p/[code]/not-found.tsx
+export default function NotFound() {
+  return <PreviewLinkErrorFrame brand={PREVIEW_BAR_BRAND} expired />
+}
+```
+
+Opening a link takes two hops because a page can't set cookies while rendering: `/p/<code>` checks
+the link and redirects to `/preview-bar/open/<code>`, which enables draft mode and redirects to the
+stored page.
+
+### 3. Mount the host in your layout
+
+```tsx
+import {PreviewBarHost} from 'sanity-preview-bar/next/client'
+
+// in the site's root layout, after the page:
+{
+  ;(await draftMode()).isEnabled && <PreviewBarHost />
+}
+```
+
+The host refreshes with `router.refresh()` and navigates with `router.push()`.
+
+### Visual Editing outside Presentation
+
+Render `<VisualEditing />` only inside the Studio's Presentation tool (for example when
+`window.self !== window.top`). In a normal draft-mode tab its overlays re-parse the page on every
+change and can loop ("Maximum update depth exceeded"), which starves client-side navigation, the
+bar's included.
 
 ## How it works
 

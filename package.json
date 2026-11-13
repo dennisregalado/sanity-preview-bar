@@ -1,6 +1,6 @@
 {
   "name": "sanity-preview-bar",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A Shopify-style Sanity preview bar for SvelteKit and Next.js: the Studio's perspective switcher, short expiring preview links and link search, built with @sanity/ui.",
   "keywords": [
     "sanity",
@@ -44,6 +44,14 @@
       "source": "./src/sveltekit/index.ts",
       "default": "./dist/sveltekit.js"
     },
+    "./next": {
+      "source": "./src/next/index.ts",
+      "default": "./dist/next.js"
+    },
+    "./next/client": {
+      "source": "./src/next/client.tsx",
+      "default": "./dist/next-client.js"
+    },
     "./package.json": "./package.json"
   },
   "types": "./dist/index.d.ts",
@@ -72,6 +80,7 @@
     "@sveltejs/kit": "^3.2.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "next": "^16.4.6",
     "prettier": "^3.10.0",
     "prettier-plugin-packagejson": "^3.0.2",
     "react": "^19.3.1",
@@ -83,12 +92,16 @@
   },
   "peerDependencies": {
     "@sveltejs/kit": "^2 || ^3",
+    "next": "^15 || ^16",
     "react": "^18 || ^19",
     "react-dom": "^18 || ^19",
     "styled-components": "^6.1"
   },
   "peerDependenciesMeta": {
     "@sveltejs/kit": {
+      "optional": true
+    },
+    "next": {
       "optional": true
     }
   },
@@ -102,6 +115,8 @@
       "./host": "./dist/host.js",
       "./server": "./dist/server.js",
       "./sveltekit": "./dist/sveltekit.js",
+      "./next": "./dist/next.js",
+      "./next/client": "./dist/next-client.js",
       "./package.json": "./package.json"
     }
   }

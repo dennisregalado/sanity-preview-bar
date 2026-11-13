@@ -78,6 +78,27 @@ describe('buildSearchQuery', () => {
     )
   })
 
+  test('boost.subtitle null boosts the title only', () => {
+    const query = buildSearchQuery({
+      config: {
+        types: [
+          {
+            type: 'maker',
+            title: 'Maker',
+            fields: {title: 'name', subtitle: 'array::join(tags, ", ")', slug: 'slug.current'},
+            boost: {subtitle: null},
+            href: (s) => `/makers/${s}`,
+          },
+        ],
+      },
+      types: ['maker'],
+      hasQuery: true,
+      sort: 'best',
+    })
+    expect(query).toContain('boost(_type == "maker" && name match text::query($q), 10)')
+    expect(query).not.toContain('array::join(tags, ", ") match')
+  })
+
   test('no query skips scoring; sorts map to created/updated order', () => {
     const empty = buildSearchQuery({config, types: ['page'], hasQuery: false, sort: 'best'})
     expect(empty).not.toContain('score(')

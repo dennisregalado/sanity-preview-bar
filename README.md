@@ -84,7 +84,7 @@ export const previewBar = createSvelteKitPreviewBar({
 
 `fields` are GROQ expressions, so computed values work (`coalesce(...)`, `"/policies/" +
 slug.current`). Set `boost` to the plain field paths when a field is computed, so ranking matches the
-Studio's.
+Studio's, or `boost: {subtitle: null}` to rank on the title only.
 
 ### 2. Hooks
 

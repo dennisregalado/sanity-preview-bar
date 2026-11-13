@@ -43,9 +43,10 @@ export type SearchDocumentType = {
   }
   /**
    * Plain field paths to boost, like the Studio's preview fields (title 10, subtitle 5). Defaults
-   * to `fields.title` and `fields.subtitle`; set this when those are computed expressions.
+   * to `fields.title` and `fields.subtitle`; set this when those are computed expressions, and
+   * `subtitle: null` to boost the title only.
    */
-  boost?: {title?: string; subtitle?: string}
+  boost?: {title?: string; subtitle?: string | null}
   /** An extra GROQ filter, e.g. `store.isDeleted != true`. */
   filter?: string
   /** The page a document opens, from its slug. */
@@ -135,7 +136,8 @@ function assertTypeName(name: string) {
 function boosts(types: SearchDocumentType[]) {
   return types.flatMap((type) => {
     const title = type.boost?.title ?? type.fields.title
-    const subtitle = type.boost?.subtitle ?? type.fields.subtitle
+    const subtitle =
+      type.boost && 'subtitle' in type.boost ? type.boost.subtitle : type.fields.subtitle
     const parts = [
       `boost(_type == "${type.type}" && ${title} match text::query($q), ${WEIGHTS.title})`,
     ]

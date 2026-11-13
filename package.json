@@ -1,0 +1,113 @@
+{
+  "name": "sanity-preview-bar",
+  "version": "0.1.0",
+  "description": "A Shopify-style Sanity preview bar for SvelteKit and Next.js: the Studio's perspective switcher, short expiring preview links and link search, built with @sanity/ui.",
+  "keywords": [
+    "sanity",
+    "preview",
+    "presentation",
+    "visual-editing",
+    "content-releases",
+    "sveltekit",
+    "nextjs"
+  ],
+  "homepage": "https://github.com/dennisregalado/sanity-preview-bar#readme",
+  "bugs": {
+    "url": "https://github.com/dennisregalado/sanity-preview-bar/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dennisregalado/sanity-preview-bar.git"
+  },
+  "license": "MIT",
+  "author": "Dennis Regalado <dennis@baggy.studio>",
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/core/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./bar": {
+      "source": "./src/bar/index.ts",
+      "default": "./dist/bar.js"
+    },
+    "./host": {
+      "source": "./src/host/index.ts",
+      "default": "./dist/host.js"
+    },
+    "./server": {
+      "source": "./src/server/index.ts",
+      "default": "./dist/server.js"
+    },
+    "./sveltekit": {
+      "source": "./src/sveltekit/index.ts",
+      "default": "./dist/sveltekit.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.ts",
+  "browserslist": "extends @sanity/browserslist-config",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "pkg-utils build --strict --check --clean",
+    "format": "prettier --write --cache --ignore-unknown .",
+    "lint": "prettier --check . && tsc --noEmit",
+    "prepublishOnly": "npm run build && npm test",
+    "test": "vitest run",
+    "watch": "pkg-utils watch --strict"
+  },
+  "dependencies": {
+    "@sanity/icons": "^5.3.0",
+    "@sanity/preview-url-secret": "^4.1.5",
+    "@sanity/ui": "^4.4.12",
+    "@tanstack/react-virtual": "^3.14.26",
+    "motion": "^14.14.0"
+  },
+  "devDependencies": {
+    "@sanity/client": "^8.15.1",
+    "@sanity/pkg-utils": "^13.0.18",
+    "@sveltejs/kit": "^3.2.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "prettier": "^3.10.0",
+    "prettier-plugin-packagejson": "^3.0.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "sanity": "^6.23.0",
+    "styled-components": "^6.6.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.1.0"
+  },
+  "peerDependencies": {
+    "@sveltejs/kit": "^2 || ^3",
+    "react": "^18 || ^19",
+    "react-dom": "^18 || ^19",
+    "styled-components": "^6.1"
+  },
+  "peerDependenciesMeta": {
+    "@sveltejs/kit": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=20.19 <22 || >=22.12"
+  },
+  "inlinedDependencies": {
+    "@sanity/client": "8.16.0",
+    "get-it": "9.7.0",
+    "rxjs": "7.8.2"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/index.js",
+      "./bar": "./dist/bar.js",
+      "./host": "./dist/host.js",
+      "./server": "./dist/server.js",
+      "./sveltekit": "./dist/sveltekit.js",
+      "./package.json": "./package.json"
+    }
+  }
+}

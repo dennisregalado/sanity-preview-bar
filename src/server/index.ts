@@ -4,7 +4,6 @@
  * later `/next`) supply that state and the one thing that differs per framework: turning preview
  * mode on and off.
  */
-import type {SanityClient} from '@sanity/client'
 import {fetchSharedAccessQuery} from '@sanity/preview-url-secret/constants'
 
 import type {PreviewBarBrand, PreviewBarData} from '../core/data'
@@ -70,6 +69,24 @@ export type PreviewBarOptions = {
     | false
 }
 
+/**
+ * The slice of `@sanity/client`'s `SanityClient` the bar uses. Structural, so any client version
+ * fits and the package carries none of its types.
+ */
+export type PreviewClient = {
+  withConfig(config: {
+    apiVersion?: string
+    perspective?: PreviewPerspective | 'raw'
+    useCdn?: boolean
+    stega?: boolean
+  }): PreviewClient
+  fetch<R = unknown>(
+    query: string,
+    params?: Record<string, unknown>,
+    options?: {tag?: string},
+  ): Promise<R>
+}
+
 /** The request's preview state, as the framework adapter knows it. */
 export type PreviewContext = {
   request: Request
@@ -79,7 +96,7 @@ export type PreviewContext = {
    * A server Sanity client with a read token. Its perspective doesn't matter: handlers set what
    * they need per query.
    */
-  client: SanityClient
+  client: PreviewClient
   /** The perspective the request applies (the parsed perspective cookie). */
   perspective: PreviewPerspective
 }
@@ -126,14 +143,14 @@ export function deleteCookieHeader(request: Request, name: string) {
  * that introduced releases, no stega or CDN. The client's token needs read access to
  * `system.release` documents.
  */
-export function fetchReleases(client: SanityClient) {
+export function fetchReleases(client: PreviewClient) {
   return client
     .withConfig({apiVersion: '2025-02-19', perspective: 'raw', useCdn: false, stega: false})
     .fetch<ReleaseDocument[] | null>(RELEASES_QUERY)
     .then((releases) => releases ?? [])
 }
 
-function rawClient(client: SanityClient) {
+function rawClient(client: PreviewClient) {
   return client.withConfig({perspective: 'raw', useCdn: false, stega: false})
 }
 

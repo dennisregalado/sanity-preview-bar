@@ -3,7 +3,6 @@
  * `__sanity_preview` cookie and `event.locals.sanity`). Each route file re-exports one handler; see
  * the README for the full set.
  */
-import type {SanityClient} from '@sanity/client'
 import {error, redirect, type RequestEvent} from '@sveltejs/kit'
 
 import type {PreviewBarData} from '../core/data'
@@ -14,7 +13,7 @@ import {
   serializePerspective,
 } from '../core/perspective'
 import {isPresentationRequest} from '../core/presentation'
-import type {PreviewBar, PreviewContext, PreviewModeSwitch} from '../server'
+import type {PreviewBar, PreviewClient, PreviewContext, PreviewModeSwitch} from '../server'
 import {deleteCookieHeader} from '../server'
 
 /** `handlePreviewMode`'s default preview cookie. */
@@ -23,7 +22,7 @@ export const SANITY_PREVIEW_COOKIE = '__sanity_preview'
 /** What `@sanity/sveltekit` puts on `event.locals.sanity`. */
 type SanityLocals = {
   previewEnabled: boolean
-  client: SanityClient
+  client: PreviewClient
   previewPerspective?: unknown
 }
 

@@ -1,10 +1,9 @@
-import type {SanityClient} from '@sanity/client'
 import {fetchSharedAccessQuery} from '@sanity/preview-url-secret/constants'
 import {describe, expect, test, vi} from 'vitest'
 
 import {PERSPECTIVE_COOKIE, RELEASES_QUERY, type ReleaseDocument} from '../src/core/perspective'
 import {memoryStore, previewLinkKey} from '../src/core/preview-links'
-import {createPreviewBar, type PreviewContext} from '../src/server'
+import {createPreviewBar, type PreviewClient, type PreviewContext} from '../src/server'
 
 const ORIGIN = 'https://shop.example'
 
@@ -25,7 +24,7 @@ function fakeClient({sharing = true}: {sharing?: boolean} = {}) {
       return []
     }),
   }
-  return client as unknown as SanityClient
+  return client as unknown as PreviewClient
 }
 
 function ctx(

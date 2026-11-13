@@ -46,7 +46,8 @@ describe('sortReleases', () => {
   test('matches the installed sanity export', async () => {
     const {sortReleases: studioSort} = await import('sanity')
     expect(sortReleases(all).map(releaseIdOf)).toEqual(studioSort(all as never).map(releaseIdOf))
-  })
+    // Importing the whole `sanity` package can take several seconds on a cold or busy machine.
+  }, 30_000)
 })
 
 describe('activeReleases', () => {

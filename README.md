@@ -14,6 +14,12 @@ Shopify theme preview, made of the Studio's own parts.
   title, and "Manage project" / "Invite members" on sanity.io (the project ID comes from your
   Sanity client, or set `projectId`).
 - **Visual Editor, Hide bar, Exit preview:** exit leaves preview in place, with no reload.
+- **For signed-in editors (Studio layer):** with your Studio config passed to the bar, editors
+  signed in to the embedded Studio get Studio presence (who's online, and an editing ring for
+  whoever has this page's document open), the Studio's own search (native previews and filters),
+  and this page's versions in the perspective switcher (from Presentation's route map), with a dot
+  when the page has unpublished changes. Everyone else gets "Sign in", which opens the Studio's own
+  sign-in.
 
 Everything is `@sanity/ui`, rendered in a same-origin iframe, so the bar's styles and the site's never
 meet, and **React and Sanity UI never load outside preview mode**. The site side is a small
@@ -204,7 +210,23 @@ export const load = previewBar.openLink
 
 The host is a few KB with no dependencies, and loads only in preview.
 
-### 5. Short links
+### 5. Studio layer (optional)
+
+```ts
+// In createPreviewBar: the Presentation tool's `resolve.mainDocuments` list
+pageDocuments: MAIN_DOCUMENTS,
+
+// src/routes/preview-bar/resolve/+server.ts
+export const GET = previewBar.resolveHref
+// src/routes/preview-bar/document/+server.ts
+export const GET = previewBar.pageDocument
+```
+
+On the bar page, pass a loader for your Studio config as the third argument:
+`mountPreviewBar(target, data, {studioConfig: () => import('../../../sanity.config').then((m) => m.default)})`.
+`sanity` and the config load only for signed-in editors.
+
+### 6. Short links
 
 - Create a KV namespace and bind it (`wrangler.jsonc` → `kv_namespaces`), or pass any store with
   `get` and `put(key, value, ttlSeconds)`.

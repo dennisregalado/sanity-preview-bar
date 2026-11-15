@@ -26,7 +26,7 @@ export default defineConfig({
   // Framework packages stay imports in the output.
   // Kept as bare specifiers: Next swaps `next/headers` and `next/navigation` for route-handler
   // builds only when they're imported by name, not as `next/navigation.js`.
-  deps: {neverBundle: [/^@sveltejs\/kit(\/.*)?$/, /^next(\/.*)?$/]},
+  deps: {neverBundle: [/^@sveltejs\/kit(\/.*)?$/, /^next(\/.*)?$/, /^sanity(\/.*)?$/, /^history$/]},
   // No release tags (`@public`/`@beta`) on this API yet.
   tsdoc: false,
 })

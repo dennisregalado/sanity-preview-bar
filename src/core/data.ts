@@ -34,6 +34,8 @@ export type PreviewBarData = {
   links: boolean
   /** The serialized perspective cookie value the server applied to this request. */
   perspective: string
+  /** `pageDocuments` is configured, so the bar can show the page's document status. */
+  pageDocuments: boolean
   /** The search's type filter, or `null` when search is off. */
   search: SearchKindOption[] | null
 }

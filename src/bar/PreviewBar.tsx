@@ -26,6 +26,25 @@ import {SearchDialog} from './SearchDialog'
 import {StudioMenuItem} from './StudioMenuItem'
 import {StudioTooltip} from './StudioTooltip'
 import {WorkspaceMenu} from './WorkspaceMenu'
+import {PresenceStack} from './PresenceStack'
+import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
+import {
+  type PageDocumentStatus,
+  type PresenceUser,
+  type StudioConfigLoader,
+  StudioLayer,
+} from './StudioLayer'
+
+export type {StudioConfigLoader}
+
+/** Client-side options for `mountPreviewBar`. */
+export type PreviewBarOptions = {
+  /**
+   * Loads the project's Studio config. With it, signed-in editors get the Studio layer (presence
+   * avatars); without it, the bar works as before.
+   */
+  studioConfig?: StudioConfigLoader
+}
 
 export type {PreviewBarData}
 
@@ -46,6 +65,7 @@ const CARD_CSS = `
 .preview-bar-layout { display: flex; align-items: center; gap: 4px; }
 .preview-bar-start { display: flex; align-items: center; gap: 4px; flex: none; }
 .preview-bar-center { display: flex; align-items: center; flex: 1; min-width: 0; }
+
 .preview-bar-end { display: flex; align-items: center; gap: 4px; flex: none; }
 @media (min-width: 1024px) {
   .preview-bar-layout { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
@@ -512,7 +532,7 @@ function useSearchShortcut(open: () => void, enabled: boolean) {
   }, [open, enabled])
 }
 
-function Bar({data}: {data: PreviewBarData}) {
+function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}) {
   const path = useHostPath()
   // Theme media is [360, 600, …]: button labels from 600px up, icon-only below so the bar fits.
   const showLabels = useMediaIndex() >= 2
@@ -531,6 +551,74 @@ function Bar({data}: {data: PreviewBarData}) {
   const closeSearch = useCallback(() => setSearchOpen(false), [])
   useSearchShortcut(openSearch, Boolean(data.search))
   const editorParams = studioPerspectiveParams(perspective, data.releases)
+  // Signed-in editors get Visual Editor and the Studio layer; everyone else gets Sign in.
+  const {session, refresh: refreshSession} = useStudioSession(data.projectId)
+  const [presence, setPresence] = useState<PresenceUser[]>([])
+  const [signingIn, setSigningIn] = useState(false)
+  const signedIn = session.status === 'signed-in'
+  const onlineUsers = signedIn ? withCurrentUser(session.user, presence) : []
+  // Signed-in editors search with the Studio's own popover once the Studio layer is ready;
+  // everyone else keeps the bar's search.
+  const [studioReady, setStudioReady] = useState(false)
+  const studioSearch = signedIn && studioReady && Boolean(data.search)
+  const searchTypes = (data.search ?? []).flatMap(({kind}) => (kind === 'route' ? [] : [kind]))
+
+  // The page's document (from the Studio's Presentation route map) and its live status.
+  const [pageDocument, setPageDocument] = useState<{_id: string; _type: string} | null>(null)
+  const [documentStatus, setDocumentStatus] = useState<PageDocumentStatus | null>(null)
+  useEffect(() => {
+    if (!signedIn || !studioReady || !data.pageDocuments || path === null) return
+    let cancelled = false
+    fetch(`${data.basePath}/document?${new URLSearchParams({path})}`)
+      .then((response) => (response.ok ? response.json() : {document: null}))
+      .then(({document}: {document: {_id: string; _type: string} | null}) => {
+        if (!cancelled) setPageDocument(document)
+      })
+      .catch(() => {
+        if (!cancelled) setPageDocument(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [signedIn, studioReady, data.pageDocuments, data.basePath, path])
+
+  function closeStudioSearch() {
+    setSearchOpen(false)
+    // The Studio popover's exit spring is 0.4s; keep the frame unclipped until it's done.
+    window.setTimeout(() => setOverflow('search', false), 450)
+  }
+
+  async function openStudioSearchResult(item: {_id: string; _type: string}) {
+    const params = new URLSearchParams({type: item._type, id: item._id})
+    const response = await fetch(`${data.basePath}/resolve?${params}`).catch(() => null)
+    const {href} = response?.ok ? ((await response.json()) as {href?: string}) : {}
+    closeStudioSearch()
+    if (href) {
+      postToHost({type: 'sanity-preview-bar:navigate', href})
+      return
+    }
+    // No page in this perspective (e.g. a draft-only or archived product): open it in the Studio.
+    const id = item._id.replace(/^drafts\./, '').replace(/^versions\.[^.]+\./, '')
+    window.open(
+      `${data.studioPath}/intent/edit/id=${encodeURIComponent(id)};type=${encodeURIComponent(item._type)}`,
+      '_blank',
+      'noopener',
+    )
+  }
+
+  function signIn() {
+    if (!data.projectId) return
+    const projectId = data.projectId
+    setSigningIn(true)
+    openStudioSignIn(
+      data.studioPath,
+      () => fetchCurrentUser(projectId).then(Boolean),
+      () => {
+        setSigningIn(false)
+        void refreshSession()
+      },
+    )
+  }
   editorParams.set('preview', path ?? '/')
 
   return (
@@ -569,10 +657,16 @@ function Bar({data}: {data: PreviewBarData}) {
               onOpenChange={(open) => setOverflow('perspective', open)}
               onChange={setPerspective}
               onRefresh={refreshHost}
+              page={signedIn ? documentStatus : null}
             />
           </div>
           {/* Shopify's preview bar: copy link, the "…" menu, then the primary pill. */}
           <div className="preview-bar-end">
+            <PresenceStack
+              users={onlineUsers}
+              pageEditors={signedIn ? (documentStatus?.editors ?? []) : []}
+              onHoverChange={(hovered) => setOverflow('presence', hovered)}
+            />
             {data.links && (
               <CopyPreviewLink
                 sharing={data.sharing}
@@ -581,21 +675,47 @@ function Bar({data}: {data: PreviewBarData}) {
               />
             )}
             <MoreMenu setOverflow={setOverflow} />
-            <Button
-              as="a"
-              mode="default"
-              padding={2}
-              text="Visual Editor"
-              aria-label="Visual Editor"
-              href={`${data.studioPath}/presentation?${editorParams}`}
-              target="_blank"
-              rel="noopener"
-            />
+            {session.status === 'signed-out' ? (
+              <Button
+                mode="default"
+                padding={2}
+                text={signingIn ? 'Signing in…' : 'Sign in'}
+                disabled={signingIn}
+                onClick={signIn}
+              />
+            ) : (
+              <Button
+                as="a"
+                mode="default"
+                padding={2}
+                text="Visual Editor"
+                aria-label="Visual Editor"
+                href={`${data.studioPath}/presentation?${editorParams}`}
+                target="_blank"
+                rel="noopener"
+              />
+            )}
           </div>
         </div>
       </Card>
+      {signedIn && options.studioConfig && (
+        <StudioLayer
+          load={options.studioConfig}
+          studioPath={data.studioPath}
+          onPresence={setPresence}
+          onReady={() => setStudioReady(true)}
+          document={pageDocument}
+          onDocumentStatus={setDocumentStatus}
+          search={{
+            open: studioSearch && searchOpen,
+            types: searchTypes,
+            onClose: closeStudioSearch,
+            onSelect: openStudioSearchResult,
+          }}
+        />
+      )}
       <AnimatePresence onExitComplete={() => setOverflow('search', false)}>
-        {searchOpen && data.search && (
+        {searchOpen && !studioSearch && data.search && (
           <SearchDialog
             kinds={data.search}
             onClose={closeSearch}
@@ -610,26 +730,41 @@ function Bar({data}: {data: PreviewBarData}) {
   )
 }
 
-function App({data}: {data: PreviewBarData}) {
+function App({data, options}: {data: PreviewBarData; options: PreviewBarOptions}) {
   const scheme = usePrefersDark() ? 'dark' : 'light'
   return (
     <ThemeProvider theme={theme} scheme={scheme}>
       <BarDataContext.Provider value={data}>
         <style>{CARD_CSS}</style>
-        <Bar data={data} />
+        <Bar data={data} options={options} />
       </BarDataContext.Provider>
     </ThemeProvider>
   )
 }
 
 /** Renders the bar into `element` and returns its unmount function. */
-export function mountPreviewBar(element: HTMLElement, data: PreviewBarData) {
+export function mountPreviewBar(
+  element: HTMLElement,
+  data: PreviewBarData,
+  options: PreviewBarOptions = {},
+) {
   injectStudioDocumentCss(element.ownerDocument, {transparent: true})
   const root = createRoot(element)
   root.render(
     <StrictMode>
-      <App data={data} />
+      <App data={data} options={options} />
     </StrictMode>,
   )
   return () => root.unmount()
+}
+
+/** The signed-in editor first, then everyone else the Studio reports online. */
+function withCurrentUser(
+  user: {id: string; name?: string; profileImage?: string},
+  others: PresenceUser[],
+): PresenceUser[] {
+  return [
+    {id: user.id, name: user.name, imageUrl: user.profileImage},
+    ...others.filter((other) => other.id !== user.id),
+  ]
 }

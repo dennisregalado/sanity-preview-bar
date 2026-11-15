@@ -126,7 +126,7 @@ function Media({result}: {result: SearchResult}) {
  * `DocumentVersionsStatusIndicator`: one small layer icon per version that exists (draft ring,
  * published dot, release clock), tinted through `--card-icon-color`.
  */
-function StatusIcons({status}: {status: SearchResult['status']}) {
+export function StatusIcons({status}: {status: SearchResult['status']}) {
   if (status.length === 0) return null
   return (
     <Flex align="center">

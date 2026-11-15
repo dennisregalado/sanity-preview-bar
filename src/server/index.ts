@@ -46,6 +46,7 @@ import {
   type PreviewLinkStore,
   previewLinkKey,
 } from '../core/preview-links'
+import {findPageDocumentRule, type PageDocumentRule} from '../core/page-documents'
 import {PREVIEW_BAR_ROUTE} from '../core/protocol'
 
 export type PreviewBarOptions = {
@@ -56,6 +57,11 @@ export type PreviewBarOptions = {
   projectId?: string
   /** The bar's route. Default `/preview-bar`. */
   basePath?: string
+  /**
+   * Which document each page shows: the Studio Presentation tool's `resolve.mainDocuments` list
+   * (`defineDocuments([...])`). With it, signed-in editors see the page's document status.
+   */
+  pageDocuments?: PageDocumentRule[]
   /** Link search; `false` or omitted hides the search button. */
   search?: SearchConfig | false
   /** Short expiring links; `false` or omitted keeps Presentation's own shared link. */
@@ -202,6 +208,7 @@ export function createPreviewBar(options: PreviewBarOptions) {
       links: Boolean(links),
       perspective: serializePerspective(ctx.perspective),
       search: search ? searchKinds(search) : null,
+      pageDocuments: Boolean(options.pageDocuments),
     }
   }
 
@@ -256,6 +263,63 @@ export function createPreviewBar(options: PreviewBarOptions) {
     headers.append('set-cookie', deleteCookieHeader(ctx.request, PERSPECTIVE_COOKIE))
     await disablePreview(headers, ctx.request)
     return new Response(null, {status: 204, headers})
+  }
+
+  /**
+   * GET `?type=&id=`: `{ href }`, the page a document opens, for search results picked in the
+   * Studio's own search (Studio layer). 404 for a type without a page or a document without a slug.
+   */
+  async function resolveHref(ctx: PreviewContext): Promise<Response> {
+    if (!ctx.previewEnabled || !search) return status(404, 'Not found')
+    const url = new URL(ctx.request.url)
+    const type = search.types?.find((candidate) => candidate.type === url.searchParams.get('type'))
+    const id = (url.searchParams.get('id') ?? '')
+      .replace(/^drafts\./, '')
+      .replace(/^versions\.[^.]+\./, '')
+    if (!type || !/^[\w.-]{1,128}$/.test(id)) return status(404, 'Not found')
+    const client = ctx.client.withConfig({
+      perspective: ctx.perspective,
+      stega: false,
+      useCdn: false,
+    })
+    // The type's own filter too, so a document the site doesn't show (an archived product) has no
+    // page here either.
+    const filter = type.filter ? ` && (${type.filter})` : ''
+    const slug = await client.fetch<string | null>(
+      `*[_id == $id${filter}][0]{"slug": ${type.fields.slug}}.slug`,
+      {id},
+    )
+    if (!slug) return status(404, 'No page for this document')
+    return json({href: type.href(slug)})
+  }
+
+  /**
+   * GET `?path=`: `{ document: { _id, _type } | null }`, the document the page at `path` shows,
+   * from `pageDocuments`. The ID is the published ID, whatever version the perspective shows.
+   */
+  async function pageDocument(ctx: PreviewContext): Promise<Response> {
+    if (!ctx.previewEnabled || !options.pageDocuments) return status(404, 'Not found')
+    const path = new URL(ctx.request.url).searchParams.get('path') ?? '/'
+    const rule = findPageDocumentRule(options.pageDocuments, path)
+    if (!rule) return json({document: null})
+    const client = ctx.client.withConfig({
+      perspective: ctx.perspective,
+      stega: false,
+      useCdn: false,
+    })
+    const document = await client.fetch<{_id: string; _type: string} | null>(
+      `*[${rule.filter}][0]{_id, _type}`,
+      rule.params,
+      {tag: 'preview-bar.page-document'},
+    )
+    return json({
+      document: document
+        ? {
+            _id: document._id.replace(/^drafts\./, '').replace(/^versions\.[^.]+\./, ''),
+            _type: document._type,
+          }
+        : null,
+    })
   }
 
   /** GET `?q=&kinds=&sort=&offset=`: `{ results, nextOffset }`. Fixed routes come first. */
@@ -387,6 +451,8 @@ export function createPreviewBar(options: PreviewBarOptions) {
     perspective,
     exit,
     search: searchLinks,
+    resolveHref,
+    pageDocument,
     share,
     openLink,
   }

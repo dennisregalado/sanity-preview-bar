@@ -25,8 +25,16 @@ ${[
   .join('\n')}
 `
 
-/** The bar's frame is transparent, full height and never scrolls. */
+/**
+ * The bar's frame is transparent, full height and never scrolls. `color-scheme: normal` keeps it
+ * transparent: browsers paint an iframe's canvas opaque when its color scheme differs from the
+ * embedding page's, and the Studio layer's `ui5` styles set `:root { color-scheme: light dark }`
+ * (in a CSS layer, so this unlayered rule wins). Clipped, the opaque canvas hides behind the bar;
+ * unclipped for a tooltip or menu, it covered the whole site. The bar's dark theme comes from
+ * Sanity UI's variables, not from `color-scheme`.
+ */
 const FRAME_CSS = `
+:root { color-scheme: normal; }
 html, body { height: 100%; overflow: hidden; background: transparent; }
 `
 

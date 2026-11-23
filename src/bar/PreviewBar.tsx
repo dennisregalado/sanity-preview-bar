@@ -36,6 +36,7 @@ import {StudioTooltip} from './StudioTooltip'
 import {WorkspaceMenu} from './WorkspaceMenu'
 import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
 import {useDocumentPaneState} from './pane-state'
+import {InspectorButton} from './InspectorButton'
 import {ShareMenu, type StudioSharingClient} from './ShareMenu'
 import {type StudioConfigLoader, StudioLayer} from './StudioLayer'
 
@@ -714,6 +715,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
           </div>
           {/* Shopify's preview bar: copy link, the "…" menu, then the primary pill. */}
           <div className="preview-bar-end">
+            <InspectorButton onHoverChange={(hovered) => setOverflow('inspector', hovered)} />
             {data.links && (
               <ShareMenu
                 sharing={data.sharing}

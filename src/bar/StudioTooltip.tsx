@@ -8,11 +8,21 @@ import {Tooltip} from '@sanity/ui/tooltip'
 import type {JSX} from 'react'
 import {useBarPlacement} from './context'
 
-/** `GLOBAL_SEARCH_KEY_MODIFIER`: "Mod" reads as Cmd on Apple platforms and Ctrl elsewhere. */
-const MOD_KEY =
+const APPLE =
   typeof window !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(window.navigator.platform)
-    ? 'Cmd'
-    : 'Ctrl'
+
+/**
+ * Key names as the Studio shows them: "Mod" is Cmd on Apple platforms and Ctrl elsewhere, and
+ * Apple platforms get the modifier symbols (⌘ ⇧ ⌥ ⌃), as in "Search ⌘K".
+ */
+function keyLabel(key: string) {
+  const name = key === 'Mod' ? (APPLE ? 'Cmd' : 'Ctrl') : key
+  if (!APPLE) return name
+  return (
+    ({Cmd: '⌘', Shift: '⇧', Alt: '⌥', Option: '⌥', Ctrl: '⌃'} as Record<string, string>)[name] ??
+    name
+  )
+}
 
 export function StudioTooltip({
   content,
@@ -46,7 +56,7 @@ export function StudioTooltip({
           </Box>
           {hotkeys && (
             <Box flex="none">
-              <Hotkeys keys={hotkeys.map((key) => (key === 'Mod' ? MOD_KEY : key))} />
+              <Hotkeys keys={hotkeys.map(keyLabel)} />
             </Box>
           )}
         </Flex>

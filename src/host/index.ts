@@ -12,6 +12,9 @@
  * an L: the pane's full-height column (on the left or right) plus the bar, which narrows to sit
  * beside it. Clipped-out areas take no pointer events, so the rest of the page stays clickable,
  * and the page gets padding on the pane's side so its content reflows beside the pane.
+ *
+ * Click-to-edit (`overlay.ts`) runs while the pane is open: clicking an element marked with
+ * `data-sanity` opens its document and field in the pane.
  */
 import {
   isPreviewBarMessage,
@@ -23,6 +26,8 @@ import {
   type PreviewBarMessage,
   type PreviewBarPosition,
 } from '../core/protocol'
+import type {SanityNode} from '../core/sanity-node'
+import {mountClickToEdit} from './overlay'
 
 export type PreviewBarHostOptions = {
   /** The bar's route. Default `/preview-bar`. */
@@ -39,6 +44,11 @@ export type PreviewBarHostOptions = {
    * sit under the bar.
    */
   position?: PreviewBarPosition
+  /**
+   * Click-to-edit while the document pane is open: hovering an element with `data-sanity`
+   * outlines it, and clicking it opens that document and field in the pane. Default `true`.
+   */
+  clickToEdit?: boolean
 }
 
 export type PreviewBarHost = {
@@ -60,6 +70,10 @@ function isEditable(target: EventTarget | null) {
   return Boolean(
     element?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"]'),
   )
+}
+
+function editMessage(node: SanityNode): PreviewBarMessage {
+  return {type: 'sanity-preview-bar:edit', id: node.id, documentType: node.type, path: node.path}
 }
 
 function currentPath() {
@@ -149,6 +163,12 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
   document.body.appendChild(wrapper)
   if ('showPopover' in wrapper) wrapper.showPopover()
 
+  // Click-to-edit, from when the bar says the pane is open.
+  const clickToEdit =
+    options.clickToEdit === false
+      ? null
+      : mountClickToEdit({active: false, onEdit: (node) => post(editMessage(node))})
+
   // Reserve room so the bar never covers the footer (or, at the top, the start of the page).
   const root = document.documentElement
   root.style.setProperty(`padding-${position}`, `${PREVIEW_BAR_HEIGHT}px`)
@@ -195,6 +215,7 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
         panelWidth = event.data.open ? Math.min(event.data.width, window.innerWidth) : 0
         panelSide = event.data.side
         layout()
+        clickToEdit?.setActive(event.data.open)
         break
       case 'sanity-preview-bar:navigate':
         void options.navigate(event.data.href)
@@ -236,6 +257,7 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
     window.removeEventListener('message', onMessage)
     window.removeEventListener('keydown', onKeyDown)
     window.removeEventListener('resize', onResize)
+    clickToEdit?.destroy()
     root.style.removeProperty(`padding-${position}`)
     root.style.removeProperty('padding-left')
     root.style.removeProperty('padding-right')
@@ -259,6 +281,11 @@ export type PreviewBarFrameOptions = {
   navigate: (href: string) => unknown
   /** The current path and query. Default `location.pathname + location.search`. */
   path?: string
+  /**
+   * Click-to-edit: hovering an element with `data-sanity` outlines it, and clicking it opens that
+   * document and field in the tool's pane. Default `true`.
+   */
+  clickToEdit?: boolean
 }
 
 /**
@@ -266,7 +293,7 @@ export type PreviewBarFrameOptions = {
  * here (the tool shows it above the frame), just the tool's messages. The page reports its path
  * on load and after every navigation (`setPath`), reruns its data when the bar switches
  * perspective, and navigates when a search result is picked. Only the parent window on this
- * origin is listened to.
+ * origin is listened to. Click-to-edit is always on here (⌘\ / Ctrl+\ turns it off).
  */
 export function mountPreviewBarFrame(options: PreviewBarFrameOptions): PreviewBarHost {
   let path = options.path ?? currentPath()
@@ -297,6 +324,11 @@ export function mountPreviewBarFrame(options: PreviewBarFrameOptions): PreviewBa
   window.addEventListener('message', onMessage)
   post({type: 'sanity-preview-bar:frame-path', path})
 
+  const clickToEdit =
+    options.clickToEdit === false
+      ? null
+      : mountClickToEdit({onEdit: (node) => post(editMessage(node))})
+
   return {
     setPath(next) {
       path = next
@@ -305,8 +337,16 @@ export function mountPreviewBarFrame(options: PreviewBarFrameOptions): PreviewBa
     destroy() {
       destroyed = true
       window.removeEventListener('message', onMessage)
+      clickToEdit?.destroy()
     },
   }
 }
 
 export {isPreviewBarFrame} from '../core/protocol'
+export {
+  findSanityTarget,
+  mountClickToEdit,
+  type ClickToEdit,
+  type ClickToEditOptions,
+  type SanityTarget,
+} from './overlay'

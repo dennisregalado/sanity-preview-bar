@@ -29,7 +29,14 @@ import {type BarHost, PreviewBarView} from '../bar/PreviewBar'
 import {useStudioBarData} from './studio-bar-data'
 import type {VisualEditorLocations} from './locations'
 import {PaneResizer} from '../bar/StudioLayer'
-import {PANEL_WIDTH, panelLayout, readNumber, store, useViewportWidth} from '../bar/pane-state'
+import {
+  applyEdit,
+  PANEL_WIDTH,
+  panelLayout,
+  readNumber,
+  store,
+  useViewportWidth,
+} from '../bar/pane-state'
 import {findPageDocumentRule, type PageDocumentRule} from '../core/page-documents'
 import {
   isPreviewBarMessage,
@@ -473,8 +480,8 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
   }, [])
 
   // Messages from the bar (in process) and the framed site (`postMessage`).
-  const latest = useRef({path, columnOpen, studioSelection, mainDocument})
-  latest.current = {path, columnOpen, studioSelection, mainDocument}
+  const latest = useRef({path, columnOpen, studioSelection, mainDocument, stack})
+  latest.current = {path, columnOpen, studioSelection, mainDocument, stack}
   pathRef.current = path
   handleBarMessage.current = (message) => {
     switch (message.type) {
@@ -559,6 +566,18 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
         case 'sanity-preview-bar:refreshed':
           postToBar({type: 'sanity-preview-bar:refreshed'})
           break
+        // Click-to-edit in the page: the page's document opens (or focuses) at the path, any
+        // other document goes on the pane's stack.
+        case 'sanity-preview-bar:edit': {
+          const {stack: current, mainDocument: main} = latest.current
+          setPaneWanted(true)
+          // From a closed pane, another document still opens above the page's (the pane follows
+          // the page, and × goes back to it).
+          const base =
+            current.length || !main ? current : [{id: main.id, type: main.type, params: {}}]
+          applyEdit(base, message, main?.id ?? null, setStack)
+          break
+        }
       }
     }
     window.addEventListener('message', onMessage)

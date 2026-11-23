@@ -731,6 +731,14 @@ function Bar({
   }, [pane.open, pane.width, paneSide])
   usePaneOverlays(pane.open, pane.width, paneSide, setOverflow)
   usePaneShortcut(pane.toggle, panelEnabled && signedIn && (pane.open || pane.canOpen))
+  // Click-to-edit on the page (the host's overlay, on while the pane is open).
+  const editInPane = pane.edit
+  useEffect(() => {
+    if (!panelEnabled || !signedIn) return
+    return host.subscribe((message) => {
+      if (message.type === 'sanity-preview-bar:edit') editInPane(message)
+    })
+  }, [panelEnabled, signedIn, editInPane])
   // "Create new document": the Studio's popover, then the new document in the pane.
   const [newDocumentOpen, setNewDocumentOpen] = useState(false)
   const [newDocumentAnchor, setNewDocumentAnchor] = useState<HTMLElement | null>(null)

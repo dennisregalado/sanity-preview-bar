@@ -24,7 +24,7 @@ import {
   type PreviewBarMessage,
 } from '../core/protocol'
 import {BarDataContext, useBarData} from './context'
-import {injectStudioDocumentCss} from './document-css'
+import {injectStudioDocumentCss, keepStyledComponentsLast} from './document-css'
 import {Logo} from './logo'
 import {PerspectiveMenu, studioPerspectiveParams} from './PerspectiveMenu'
 import {SearchDialog} from './SearchDialog'
@@ -876,13 +876,17 @@ export function mountPreviewBar(
   options: PreviewBarOptions = {},
 ) {
   injectStudioDocumentCss(element.ownerDocument, {transparent: true})
+  const stopReordering = keepStyledComponentsLast(element.ownerDocument)
   const root = createRoot(element)
   root.render(
     <StrictMode>
       <App data={data} options={options} />
     </StrictMode>,
   )
-  return () => root.unmount()
+  return () => {
+    root.unmount()
+    stopReordering()
+  }
 }
 
 /** A document's published ID: the pane takes it whatever version the page resolved. */

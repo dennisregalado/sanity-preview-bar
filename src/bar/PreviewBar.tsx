@@ -773,7 +773,6 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
               onOpenChange={(open) => setOverflow('perspective', open)}
               onChange={setPerspective}
               onRefresh={refreshHost}
-              page={signedIn ? documentStatus : null}
             />
           </div>
           {/* Shopify's preview bar: copy link, the "…" menu, then the primary pill. */}

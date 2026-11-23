@@ -16,9 +16,8 @@ Shopify theme preview, made of the Studio's own parts.
 - **Visual Editor, Hide bar, Exit preview:** exit leaves preview in place, with no reload.
 - **For signed-in editors (Studio layer):** with your Studio config passed to the bar, editors
   signed in to the embedded Studio get Studio presence (who's online, and an editing ring for
-  whoever has this page's document open), the Studio's own search (native previews and filters),
-  and this page's versions in the perspective switcher (from Presentation's route map), with a dot
-  when the page has unpublished changes. Everyone else gets "Sign in", which opens the Studio's own
+  whoever has this page's document open, from Presentation's route map) and the Studio's own
+  search (native previews and filters). Everyone else gets "Sign in", which opens the Studio's own
   sign-in.
 - **Document pane (optional):** an **Edit** button opens this page's document in the Studio's own
   document editor, in a pane on the right of the page: the pane Presentation shows, with the

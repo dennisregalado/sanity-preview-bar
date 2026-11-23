@@ -20,6 +20,10 @@ Shopify theme preview, made of the Studio's own parts.
   and this page's versions in the perspective switcher (from Presentation's route map), with a dot
   when the page has unpublished changes. Everyone else gets "Sign in", which opens the Studio's own
   sign-in.
+- **Document pane (optional):** an **Edit** button opens this page's document in the Studio's own
+  document editor, in a pane on the right of the page: the pane Presentation shows, with the
+  Published / Draft chips, the form, presence, comments and Publish. The page reflows beside it and
+  stays clickable.
 
 Everything is `@sanity/ui`, rendered in a same-origin iframe, so the bar's styles and the site's never
 meet, and **React and Sanity UI never load outside preview mode**. The site side is a small
@@ -226,6 +230,26 @@ On the bar page, pass a loader for your Studio config as the third argument:
 `mountPreviewBar(target, data, {studioConfig: () => import('../../../sanity.config').then((m) => m.default)})`.
 `sanity` and the config load only for signed-in editors.
 
+**Document pane:** add `documentPane: true` to the same options:
+`mountPreviewBar(target, data, {studioConfig, documentPane: true})`. Signed-in editors get an
+**Edit** button (in place of Visual Editor) whenever the page has a document (from
+`pageDocuments`). It opens the Studio's document pane in a 420px column on the right, above the bar
+(full width on narrow screens):
+
+- The real editor: the same `DocumentPane` Presentation renders, built from public
+  `sanity/structure` exports, with your Studio config's plugins, inputs, actions and badges. Your
+  `studio.components.layout` middleware wraps it (Comments and Tasks keep their providers there), so
+  layout plugins that draw their own UI around the Studio would draw it around the pane too.
+- It edits in the bar's perspective: drafts, or the selected release's version.
+- Reference links open the referenced document in the pane; the pane's × goes back, then closes.
+- The pane follows the page: navigating the site opens the new page's document.
+- The host clips the frame to the bar plus the pane's column (`clip-path`), so the rest of the page
+  stays clickable, and adds `padding-right` to `<html>` so the page reflows. Fixed-position
+  elements on your site don't reflow; dialogs and popovers that reach past the pane unclip the frame
+  while they're open.
+- Anything that streams the form's value (a document-level `form.components.input`, like
+  Presentation's) runs in the pane too, so a realtime preview updates as editors type.
+
 ### 6. Short links
 
 - Create a KV namespace and bind it (`wrangler.jsonc` → `kv_namespaces`), or pass any store with
@@ -327,6 +351,8 @@ bar's included.
 - **The frame:** the host pins a full-viewport iframe to the bottom of a bar-height wrapper in the top
   layer (a manual popover) that clips it. When a menu, tooltip or dialog opens, the bar asks the host
   to stop clipping, and to clip again 250ms after the last one closes so exit animations play.
+- **Document pane:** the frame's wrapper grows to the viewport and a `clip-path` cuts it to an L
+  (the bar plus the pane's column); clipped-out areas take no pointer events.
 - **Messages:** the host and bar talk through `postMessage` on the site's own origin only
   (`sanity-preview-bar:*`).
 - **Perspective:** stored in Sanity's own `sanity-preview-perspective` cookie, the one Presentation

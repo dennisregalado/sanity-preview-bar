@@ -2,6 +2,7 @@
 // <style> tags land in the iframe's document, never in the site's.
 import '@sanity/ui/styles.css'
 import CheckmarkCircleIcon from '@sanity/icons/CheckmarkCircle'
+import EditIcon from '@sanity/icons/Edit'
 import ErrorOutlineIcon from '@sanity/icons/ErrorOutline'
 import EllipsisHorizontalIcon from '@sanity/icons/EllipsisHorizontal'
 import EyeClosedIcon from '@sanity/icons/EyeClosed'
@@ -28,6 +29,7 @@ import {StudioTooltip} from './StudioTooltip'
 import {WorkspaceMenu} from './WorkspaceMenu'
 import {PresenceStack} from './PresenceStack'
 import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
+import type {PanelEntry} from './DocumentPanel'
 import {
   type PageDocumentStatus,
   type PresenceUser,
@@ -44,6 +46,12 @@ export type PreviewBarOptions = {
    * avatars); without it, the bar works as before.
    */
   studioConfig?: StudioConfigLoader
+  /**
+   * An **Edit** button that opens the page's document in the Studio's own document editor, in a
+   * pane on the right of the page (the pane Presentation shows). Needs `studioConfig` and the
+   * server's `pageDocuments`; editors only. Default `false`.
+   */
+  documentPane?: boolean
 }
 
 export type {PreviewBarData}
@@ -195,6 +203,58 @@ function overflowWhileHovered(key: string, setOverflow: SetOverflow) {
     onFocus: () => setOverflow(key, true),
     onBlur: () => setOverflow(key, false),
   }
+}
+
+/** The document pane's width: Presentation-like, never wider than the viewport. */
+const PANEL_WIDTH = 420
+
+function usePanelWidth() {
+  const [width, setWidth] = useState(() => Math.min(PANEL_WIDTH, window.innerWidth))
+  useEffect(() => {
+    const onResize = () => setWidth(Math.min(PANEL_WIDTH, window.innerWidth))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  return width
+}
+
+const OVERLAYS = '[data-ui="Dialog"], [data-ui="Popover"], [data-ui="Tooltip"]'
+
+/**
+ * The pane's own overlays are portaled to the frame's body. Dialogs cover the frame, and popovers
+ * or tooltips can reach past the pane's left edge; while any of them does, the host must stop
+ * clipping the frame to the pane, as it does for the bar's menus.
+ */
+function usePaneOverlays(open: boolean, width: number, setOverflow: SetOverflow) {
+  useEffect(() => {
+    if (!open) return
+    let frame = 0
+    function check() {
+      frame = 0
+      const left = window.innerWidth - width
+      const outside = [...document.querySelectorAll<HTMLElement>(OVERLAYS)].some((element) => {
+        if (element.closest('[data-preview-bar-panel]')) return false
+        if (element.dataset.ui === 'Dialog') return true
+        const rect = element.getBoundingClientRect()
+        return rect.width > 0 && rect.left < left - 1
+      })
+      setOverflow('pane-overlay', outside)
+    }
+    const observer = new MutationObserver(() => {
+      frame ||= requestAnimationFrame(check)
+    })
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'data-placement'],
+    })
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+      setOverflow('pane-overlay', false)
+    }
+  }, [open, width, setOverflow])
 }
 
 /** The share endpoint refused because Presentation's sharing was turned off after the bar loaded. */
@@ -582,6 +642,39 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     }
   }, [signedIn, studioReady, data.pageDocuments, data.basePath, path])
 
+  // The document pane: a stack (the page's document, then references opened from it), empty
+  // while closed. It follows the page: navigating elsewhere opens the new page's document.
+  const panelEnabled = Boolean(options.documentPane && options.studioConfig)
+  const [panelStack, setPanelStack] = useState<PanelEntry[]>([])
+  const panelOpen = signedIn && panelStack.length > 0
+  const panelWidth = usePanelWidth()
+  const pageDocumentId = pageDocument ? publishedId(pageDocument._id) : null
+  useEffect(() => {
+    setPanelStack((stack) => {
+      if (stack.length === 0) return stack
+      if (!pageDocument || !pageDocumentId) return []
+      return stack[0]?.id === pageDocumentId
+        ? stack
+        : [{id: pageDocumentId, type: pageDocument._type, params: {}}]
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageDocumentId])
+  useEffect(() => {
+    postToHost({
+      type: 'sanity-preview-bar:panel',
+      open: panelOpen,
+      width: panelOpen ? panelWidth : 0,
+    })
+  }, [panelOpen, panelWidth])
+  usePaneOverlays(panelOpen, panelWidth, setOverflow)
+  function togglePanel() {
+    if (panelStack.length > 0 || !pageDocument || !pageDocumentId) {
+      setPanelStack([])
+      return
+    }
+    setPanelStack([{id: pageDocumentId, type: pageDocument._type, params: {}}])
+  }
+
   function closeStudioSearch() {
     setSearchOpen(false)
     // The Studio popover's exit spring is 0.4s; keep the frame unclipped until it's done.
@@ -619,6 +712,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
       },
     )
   }
+  const studioPerspective = editorParams.toString()
   editorParams.set('preview', path ?? '/')
 
   return (
@@ -675,6 +769,25 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
               />
             )}
             <MoreMenu setOverflow={setOverflow} />
+            {panelEnabled && signedIn && pageDocument && (
+              <span style={{display: 'flex'}} {...overflowWhileHovered('edit-button', setOverflow)}>
+                <StudioTooltip
+                  content={panelOpen ? 'Close editor' : 'Edit this page'}
+                  disabled={showLabels}
+                >
+                  {/* The bar's primary pill (white), in place of Visual Editor. */}
+                  <Button
+                    mode="default"
+                    padding={2}
+                    icon={EditIcon}
+                    text={showLabels ? 'Edit' : undefined}
+                    aria-label={panelOpen ? 'Close editor' : 'Edit this page'}
+                    aria-pressed={panelOpen}
+                    onClick={togglePanel}
+                  />
+                </StudioTooltip>
+              </span>
+            )}
             {session.status === 'signed-out' ? (
               <Button
                 mode="default"
@@ -683,7 +796,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
                 disabled={signingIn}
                 onClick={signIn}
               />
-            ) : (
+            ) : panelEnabled ? null : (
               <Button
                 as="a"
                 mode="default"
@@ -702,6 +815,12 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         <StudioLayer
           load={options.studioConfig}
           studioPath={data.studioPath}
+          perspective={studioPerspective}
+          panel={
+            panelEnabled
+              ? {stack: panelOpen ? panelStack : [], onChange: setPanelStack, width: panelWidth}
+              : undefined
+          }
           onPresence={setPresence}
           onReady={() => setStudioReady(true)}
           document={pageDocument}
@@ -756,6 +875,11 @@ export function mountPreviewBar(
     </StrictMode>,
   )
   return () => root.unmount()
+}
+
+/** A document's published ID: the pane takes it whatever version the page resolved. */
+function publishedId(id: string) {
+  return id.replace(/^drafts\./, '').replace(/^versions\.[^.]+\./, '')
 }
 
 /** The signed-in editor first, then everyone else the Studio reports online. */

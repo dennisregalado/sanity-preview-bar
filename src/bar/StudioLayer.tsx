@@ -7,8 +7,25 @@
  * - Presence: reported up; the bar draws the avatars with its own Sanity UI.
  * - Search: the Studio's own `SearchPopover` (previews, filters, recent searches), pre-filtered to
  *   the types that have pages; picking a result reports `{_id, _type}` up instead of opening it.
+ * - Document pane: the Studio's document editor for the page's document, in a column on the right
+ *   (`DocumentPanel`); `sanity/structure` loads the first time it opens.
+ *
+ * The provider's router follows the bar's perspective through its sticky `perspective` and
+ * `excludedPerspectives` params (what the Studio's own URL carries), so the pane edits the drafts or
+ * the release version the page is showing.
  */
-import {type ComponentType, type ReactNode, useEffect, useRef, useState} from 'react'
+import {Card, Flex, Spinner} from '@sanity/ui'
+import {
+  type ComponentType,
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
+import {PREVIEW_BAR_HEIGHT} from '../core/protocol'
+import {DocumentPanel, type PanelEntry, type StructureModule} from './DocumentPanel'
 
 /** Loads the project's Studio config (`defineConfig(...)`), e.g. from `sanity.config.ts`. */
 export type StudioConfigLoader = () => Promise<unknown>
@@ -80,13 +97,28 @@ type SanityModule = {
     isLoading: boolean
     versions: Record<string, {_updatedAt?: string} | undefined>
   }
+  useMiddlewareComponents: <T extends object>(props: {
+    pick: (plugin: {
+      studio?: {components?: {layout?: ComponentType<T>}}
+    }) => ComponentType<T> | undefined
+    defaultComponent: ComponentType<T>
+  }) => ComponentType<T>
   useValuePreview: (props: {schemaType?: SchemaType; value: unknown}) => {
     isLoading?: boolean
     value?: {title?: unknown} | null
   }
 }
 
-type Loaded = {sanity: SanityModule; config: unknown; history: unknown}
+type MemoryHistory = {replace: (path: string) => void}
+
+type Loaded = {sanity: SanityModule; config: unknown; history: MemoryHistory}
+
+/** The document pane: its stack of documents (empty while closed) and width. */
+export type StudioPanel = {
+  stack: PanelEntry[]
+  onChange: (stack: PanelEntry[]) => void
+  width: number
+}
 
 function PresenceBridge({
   useGlobalPresence,
@@ -188,9 +220,91 @@ function TypeFilterPreset({sanity, types}: {sanity: SanityModule; types: string[
   return null
 }
 
+/**
+ * The Studio's layout middleware (`studio.components.layout`) with the pane in place of the Studio's
+ * own layout. Comments and Tasks mount their providers there (`AddonDatasetProvider`, …), and the
+ * document pane needs them; Presentation gets them by running inside the Studio layout.
+ */
+const LayoutSlot = createContext<ReactNode>(null)
+
+function LayoutSlotContent() {
+  return <>{useContext(LayoutSlot)}</>
+}
+
+const layoutMiddleware = {
+  pick: (plugin: {studio?: {components?: {layout?: ComponentType<object>}}}) =>
+    plugin.studio?.components?.layout,
+  defaultComponent: LayoutSlotContent,
+}
+
+function StudioLayoutMiddleware({sanity, children}: {sanity: SanityModule; children: ReactNode}) {
+  const Layout = sanity.useMiddlewareComponents<object>(layoutMiddleware)
+  return (
+    <LayoutSlot.Provider value={children}>
+      <Layout />
+    </LayoutSlot.Provider>
+  )
+}
+
+function PanelLoading() {
+  return (
+    <Flex align="center" justify="center" height="fill">
+      <Spinner muted />
+    </Flex>
+  )
+}
+
+/** The pane's column: right edge, from the top of the frame down to the bar. */
+function PanelColumn({sanity, panel}: {sanity: SanityModule; panel: StudioPanel}) {
+  const [structure, setStructure] = useState<StructureModule | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    import('sanity/structure')
+      .then((module) => {
+        if (!cancelled) setStructure(module as unknown as StructureModule)
+      })
+      .catch((error) =>
+        console.error('sanity-preview-bar: could not load the document pane', error),
+      )
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return (
+    <Card
+      data-preview-bar-panel=""
+      borderLeft
+      shadow={2}
+      style={{
+        position: 'fixed',
+        top: 0,
+        right: 0,
+        bottom: PREVIEW_BAR_HEIGHT,
+        width: panel.width,
+        overflow: 'hidden',
+      }}
+    >
+      {structure ? (
+        <StudioLayoutMiddleware sanity={sanity}>
+          <DocumentPanel
+            structure={structure}
+            stack={panel.stack}
+            onChange={panel.onChange}
+            fallback={<PanelLoading />}
+          />
+        </StudioLayoutMiddleware>
+      ) : (
+        <PanelLoading />
+      )}
+    </Card>
+  )
+}
+
 export function StudioLayer({
   load,
   studioPath,
+  perspective,
+  panel,
   onPresence,
   search,
   document,
@@ -200,6 +314,10 @@ export function StudioLayer({
 }: {
   load: StudioConfigLoader
   studioPath: string
+  /** The bar's perspective as Studio URL params (`perspective`, `excludedPerspectives`). */
+  perspective?: string
+  /** The document pane, when the bar offers one. */
+  panel?: StudioPanel
   onPresence: (users: PresenceUser[]) => void
   search?: StudioSearch
   /** The page's document, when known; its live status goes to `onDocumentStatus`. */
@@ -209,6 +327,9 @@ export function StudioLayer({
   onError?: (error: unknown) => void
 }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
+  const location = perspective ? `${studioPath}?${perspective}` : studioPath
+  const locationRef = useRef(location)
+  locationRef.current = location
 
   useEffect(() => {
     let cancelled = false
@@ -218,7 +339,7 @@ export function StudioLayer({
         setLoaded({
           sanity: sanity as unknown as SanityModule,
           config,
-          history: createMemoryHistory({initialEntries: [studioPath]}),
+          history: createMemoryHistory({initialEntries: [locationRef.current]}),
         })
         onReady?.()
       })
@@ -231,6 +352,11 @@ export function StudioLayer({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, studioPath])
+
+  // A perspective switch in the bar moves the Studio router's sticky params with it.
+  useEffect(() => {
+    loaded?.history.replace(location)
+  }, [loaded, location])
 
   if (!loaded) return null
   const {sanity} = loaded
@@ -262,6 +388,7 @@ export function StudioLayer({
           />
         </SearchProvider>
       )}
+      {panel && panel.stack.length > 0 && <PanelColumn sanity={sanity} panel={panel} />}
     </StudioProvider>
   )
 }

@@ -28,6 +28,20 @@ export type PreviewBarMessage =
   | {type: 'sanity-preview-bar:search'}
   /** Bar → host: a search result was chosen; navigate the storefront there (client-side). */
   | {type: 'sanity-preview-bar:navigate'; href: string}
+  /**
+   * Bar → host: the document pane opened (`width` CSS pixels at the right, above the bar) or
+   * closed. The host clips the frame to the bar plus that column and reflows the page beside it.
+   */
+  | {type: 'sanity-preview-bar:panel'; open: boolean; width: number}
+
+/*
+ * Planned, not implemented: click-to-edit. With the pane open, the host would listen for clicks on
+ * the page, find the nearest `[data-sanity]` element (Visual Editing's stega/`createDataAttribute`
+ * attribute: document ID, type and field path) and post
+ *   Host → bar: {type: 'sanity-preview-bar:edit'; id: string; type: string; path: string}
+ * The bar opens that document in the pane (or keeps it, when it's already open) with the pane param
+ * `path` set, which the Studio's document pane turns into programmatic focus on that field.
+ */
 
 export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
   if (typeof data !== 'object' || data === null || !('type' in data)) return false
@@ -42,6 +56,15 @@ export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
       return 'href' in data && isRootRelative(data.href)
     case 'sanity-preview-bar:menu':
       return 'open' in data && typeof data.open === 'boolean'
+    case 'sanity-preview-bar:panel':
+      return (
+        'open' in data &&
+        typeof data.open === 'boolean' &&
+        'width' in data &&
+        typeof data.width === 'number' &&
+        Number.isFinite(data.width) &&
+        data.width >= 0
+      )
     case 'sanity-preview-bar:path':
       // Root-relative only: the bar builds its Studio links from it.
       return 'path' in data && isRootRelative(data.path)

@@ -910,7 +910,25 @@ function Bar({
                 setOverflow={setOverflow}
               />
             )}
-            <MoreMenu setOverflow={setOverflow} />
+            {inTool ? (
+              // In the Visual Editor: back to this page on the site, where its own bar (Hide bar,
+              // Exit preview) takes over. A link, so a modifier click opens a new tab.
+              <span style={{display: 'flex'}} {...overflowWhileHovered('exit-tool', setOverflow)}>
+                <StudioTooltip content="Exit Visual Editor">
+                  <Button
+                    as="a"
+                    mode="bleed"
+                    padding={2}
+                    icon={LeaveIcon}
+                    aria-label="Exit Visual Editor"
+                    href={path ?? '/'}
+                    target="_top"
+                  />
+                </StudioTooltip>
+              </span>
+            ) : (
+              <MoreMenu setOverflow={setOverflow} />
+            )}
             {/* Hidden while a pane is open: the pane's own × closes it. */}
             {editAction && (
               <span style={{display: 'flex'}} {...overflowWhileHovered('edit-button', setOverflow)}>

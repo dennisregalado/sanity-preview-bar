@@ -337,6 +337,8 @@ $effect(() => {
   search results without a page open there too, and the pane's × goes back, then closes.
 - Perspective goes both ways: the bar's switcher moves the Studio's perspective, and the pane's
   chips or the Studio's own menu switch the bar and the site.
+- In the tool the bar's "…" menu (Hide bar, Exit preview) gives way to **Exit Visual Editor**,
+  which opens the current page on the site, where its own bar takes over.
 - The Studio's navbar is hidden while the tool is open, so the bar is the only toolbar; its logo goes
   back to the Studio. `hideStudioNavbar: false` keeps the navbar.
 - The tool enables preview mode as Presentation does (a preview secret through `previewMode.enable`)

@@ -21,6 +21,7 @@ import {
   type ReactNode,
   Suspense,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
 } from 'react'
@@ -91,6 +92,44 @@ function paneLink<P extends object>(name: string, action: (props: P) => void) {
   })
   Link.displayName = name
   return Link
+}
+
+/** When the pane re-checks that the focused field is in view, after a path is asked for. */
+const KEEP_IN_VIEW_MS = [300, 700, 1200, 2000, 2800]
+
+/**
+ * Keeps the field Sanity focused for a `path` param in view while the form settles. Sanity scrolls
+ * a field into view as it focuses it, but in a pane that has just mounted, images and rich text
+ * above the field load afterwards and push it out of view. Re-checks a few times and scrolls it
+ * back, until the editor scrolls, clicks or types.
+ */
+function useKeepFocusedFieldInView(path: string | undefined, key: string) {
+  useEffect(() => {
+    if (!path) return
+    let cancelled = false
+    const cancel = () => {
+      cancelled = true
+    }
+    const events = ['wheel', 'touchmove', 'pointerdown', 'keydown'] as const
+    for (const name of events) window.addEventListener(name, cancel, {capture: true, passive: true})
+    const timers = KEEP_IN_VIEW_MS.map((ms) =>
+      setTimeout(() => {
+        if (cancelled) return
+        const field = document.activeElement
+        if (!(field instanceof HTMLElement)) return
+        const scroller = field.closest<HTMLElement>('[data-testid="document-panel-scroller"]')
+        if (!scroller) return
+        const view = scroller.getBoundingClientRect()
+        const rect = field.getBoundingClientRect()
+        if (rect.top >= view.top && rect.bottom <= view.bottom) return
+        field.scrollIntoView({block: 'center'})
+      }, ms),
+    )
+    return () => {
+      for (const timer of timers) clearTimeout(timer)
+      for (const name of events) window.removeEventListener(name, cancel, {capture: true})
+    }
+  }, [path, key])
 }
 
 type IntentHandler = (name: string, params: Record<string, string>) => void
@@ -210,6 +249,8 @@ export function DocumentPanel({
   )
   const onOpen = useCallback((next: PanelEntry) => onChange([...stack, next]), [stack, onChange])
   const onBack = useCallback(() => onChange(stack.slice(0, -1)), [stack, onChange])
+
+  useKeepFocusedFieldInView(entry?.params.path, `${depth}:${entry?.id}`)
 
   const pane = useMemo(
     () =>

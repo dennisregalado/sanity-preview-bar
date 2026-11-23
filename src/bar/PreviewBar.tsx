@@ -72,17 +72,15 @@ export type {PreviewBarData}
 
 const theme = buildTheme()
 
-// Sanity UI's space scale has no 10px step: 10px inline padding, 20px from 1024px up. Breakpoints
+// Padding is the Studio navbar's (`padding={3}`, 12px on every side). Breakpoints
 // follow the bar's own width (`.preview-bar-wide`), not the viewport's: beside the document pane
 // the bar is only as wide as the page.
 const CARD_CSS = `
-.preview-bar-card { padding-inline: 10px; }
 /* HomeButton's StyledCard: radius 2 (3px), no underline, focus ring only for keyboard focus. */
 /* The active search result (keyboard or pointer), like the Studio's CommandList active item. */
 .preview-search-row[data-active] { background-color: var(--card-muted-bg-color); }
 .preview-bar-home { display: flex; border-radius: 3px; outline: none; text-decoration: none; }
 .preview-bar-home:focus-visible { box-shadow: 0 0 0 1px var(--card-bg-color), 0 0 0 3px var(--card-focus-ring-color); }
-.preview-bar-wide { padding-inline: 20px; }
 /* Brand, perspective switcher, actions. Below 1024px (tablet and phone) a row with the switcher
    after the brand; from 1024px a 1fr / auto / 1fr grid, so the switcher sits on the bar's centre
    whatever the side groups measure. 4px gaps, the Studio navbar's spacing. */
@@ -671,8 +669,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         tone={perspectiveTone(perspective, data.releases)}
         as="nav"
         aria-label="Sanity preview"
-        // The Studio navbar's `RootCard padding={3}`, so both bars are the same height. Inline
-        // padding comes from `.preview-bar-card` (10px, 20px from 1024px).
+        // The Studio navbar's `RootCard padding={3}`: the same height and the same 12px sides.
         padding={3}
         // Only the edge facing the page: the bar spans the viewport, so other borders read as a box.
         borderTop={position === 'bottom'}

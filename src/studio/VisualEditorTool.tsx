@@ -103,31 +103,47 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Preview mode, as Presentation enables it: a fresh preview secret through the site's route.
+  // The bar's data, from its route (404 outside preview mode).
+  const [barData, setBarData] = useState<PreviewBarData | null>(null)
+  const fetchBarData = useCallback(async () => {
+    const response = await fetch(`${barPath}/data`, {credentials: 'same-origin'})
+    return response.ok ? ((await response.json()) as PreviewBarData) : null
+  }, [barPath])
+
+  // Fast start: when the editor is already in preview mode (the bar's data answers), the bar
+  // renders at once and the site loads directly. Otherwise preview mode is enabled as Presentation
+  // does it: a fresh preview secret through the site's route, and the bar follows the frame.
   const client = useClient({apiVersion: '2025-02-19'})
   const currentUser = useCurrentUser()
   const [frameSrc, setFrameSrc] = useState<string | null>(null)
   const [frameError, setFrameError] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
-    createPreviewSecret(
-      client,
-      'sanity-preview-bar/visual-editor',
-      window.location.href,
-      currentUser?.id,
-    )
-      .then(({secret}) => {
-        if (cancelled) return
-        const url = new URL(enablePath, origin)
-        url.searchParams.set(urlSearchParamPreviewSecret, secret)
-        url.searchParams.set(urlSearchParamPreviewPathname, initialPath)
-        setFrameSrc(url.toString())
-      })
-      .catch((error: unknown) => {
-        console.error('sanity-preview-bar: could not enable preview mode', error)
-        if (!cancelled)
-          setFrameError('Couldn’t open the preview. Check that you can edit this dataset.')
-      })
+    async function start() {
+      const data = await fetchBarData().catch(() => null)
+      if (cancelled) return
+      if (data) {
+        setBarData(data)
+        setFrameSrc(new URL(initialPath, origin).toString())
+        return
+      }
+      const {secret} = await createPreviewSecret(
+        client,
+        'sanity-preview-bar/visual-editor',
+        window.location.href,
+        currentUser?.id,
+      )
+      if (cancelled) return
+      const url = new URL(enablePath, origin)
+      url.searchParams.set(urlSearchParamPreviewSecret, secret)
+      url.searchParams.set(urlSearchParamPreviewPathname, initialPath)
+      setFrameSrc(url.toString())
+    }
+    start().catch((error: unknown) => {
+      console.error('sanity-preview-bar: could not enable preview mode', error)
+      if (!cancelled)
+        setFrameError('Couldn’t open the preview. Check that you can edit this dataset.')
+    })
     return () => {
       cancelled = true
     }
@@ -162,22 +178,20 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     [],
   )
 
-  // The bar's data, from its route, once the framed site is in preview mode (its first path).
-  const [barData, setBarData] = useState<PreviewBarData | null>(null)
+  // First visit (no preview cookie yet): the bar's data once the framed site is in preview mode.
   const pathKnown = path !== null
   useEffect(() => {
-    if (!pathKnown) return
+    if (!pathKnown || barData) return
     let cancelled = false
-    fetch(`${barPath}/data`, {credentials: 'same-origin'})
-      .then((response) => (response.ok ? (response.json() as Promise<PreviewBarData>) : null))
+    fetchBarData()
       .then((data) => {
-        if (!cancelled) setBarData(data)
+        if (!cancelled && data) setBarData(data)
       })
       .catch((error: unknown) => console.error('sanity-preview-bar: could not load the bar', error))
     return () => {
       cancelled = true
     }
-  }, [pathKnown, barPath])
+  }, [pathKnown, barData, fetchBarData])
   const postToSite = useCallback(
     (message: PreviewBarMessage) => siteFrame.current?.contentWindow?.postMessage(message, origin),
     [origin],

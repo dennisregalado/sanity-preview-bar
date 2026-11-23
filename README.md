@@ -328,6 +328,8 @@ $effect(() => {
   search results without a page open there too, and the pane's × goes back, then closes.
 - Perspective goes both ways: the bar's switcher moves the Studio's perspective, and the pane's
   chips or the Studio's own menu switch the bar and the site.
+- The Studio's navbar is hidden while the tool is open, so the bar is the only toolbar; its logo goes
+  back to the Studio. `hideStudioNavbar: false` keeps the navbar.
 - The tool enables preview mode as Presentation does (a preview secret through `previewMode.enable`)
   and keeps `?preview=` in the Studio's URL in step with the page.
 - The bar and the site are framed on the site's origin, which has to be the Studio's: an embedded

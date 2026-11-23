@@ -10,20 +10,37 @@
  * ```
  */
 import EditIcon from '@sanity/icons/Edit'
-import {createElement} from 'react'
+import {createElement, type ReactNode} from 'react'
 import {definePlugin} from 'sanity'
-import {route} from 'sanity/router'
+import {route, useRouter} from 'sanity/router'
 import {VisualEditorTool, type VisualEditorToolOptions} from './VisualEditorTool'
 
 export type {VisualEditorToolOptions}
 
+type NavbarProps = {renderDefault: (props: NavbarProps) => ReactNode}
+
+/**
+ * The Studio's navbar, except in the Visual Editor, where the preview bar is the toolbar (the
+ * approach of `studio.components.navbar` middleware that renders nothing for one tool).
+ */
+function navbarFor(toolName: string) {
+  return function VisualEditorNavbar(props: NavbarProps) {
+    const {state} = useRouter()
+    return state.tool === toolName ? null : props.renderDefault(props)
+  }
+}
+
 export const visualEditorTool = definePlugin<VisualEditorToolOptions | void>((options) => {
   const settings = options ?? {}
+  const toolName = settings.name ?? 'visual-editor'
   return {
     name: 'sanity-preview-bar/visual-editor',
+    ...(settings.hideStudioNavbar === false
+      ? {}
+      : {studio: {components: {navbar: navbarFor(toolName) as never}}}),
     tools: [
       {
-        name: settings.name ?? 'visual-editor',
+        name: toolName,
         title: settings.title ?? 'Visual Editor',
         icon: EditIcon,
         options: settings,

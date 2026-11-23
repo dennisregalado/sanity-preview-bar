@@ -408,9 +408,12 @@ function Brand({
   showTitle,
   onSearch,
   newDocument,
+  inTool,
   setOverflow,
 }: {
   showTitle: boolean
+  /** In the Visual Editor tool the logo goes back to the Studio, in the same tab. */
+  inTool: boolean
   onSearch: () => void
   /** The Studio navbar's "Create new document" button (signed-in editors). */
   newDocument: {
@@ -425,9 +428,9 @@ function Brand({
     <Flex align="center" gap={1} flex="none">
       <a
         href={studioPath}
-        target="_blank"
-        rel="noopener"
-        aria-label="Open Sanity Studio"
+        target={inTool ? '_top' : '_blank'}
+        rel={inTool ? undefined : 'noopener'}
+        aria-label={inTool ? 'Back to Sanity Studio' : 'Open Sanity Studio'}
         className="preview-bar-home"
       >
         <Flex
@@ -813,6 +816,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         <div className="preview-bar-layout">
           <div className="preview-bar-start">
             <Brand
+              inTool={inTool}
               showTitle={showLabels}
               onSearch={openSearch}
               newDocument={

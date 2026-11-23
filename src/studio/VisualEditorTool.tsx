@@ -50,6 +50,11 @@ export type VisualEditorToolOptions = {
   barPath?: string
   /** The document pane's width. Default 420. */
   paneWidth?: number
+  /**
+   * Hide the Studio's navbar while the tool is open, so the preview bar is the only toolbar (its
+   * logo goes back to the Studio). Default `true`.
+   */
+  hideStudioNavbar?: boolean
 }
 
 const MOBILE_WIDTH = 375

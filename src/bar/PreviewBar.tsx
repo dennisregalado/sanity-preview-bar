@@ -81,9 +81,10 @@ const CARD_CSS = `
 .preview-search-row[data-active] { background-color: var(--card-muted-bg-color); }
 .preview-bar-home { display: flex; border-radius: 3px; outline: none; text-decoration: none; }
 .preview-bar-home:focus-visible { box-shadow: 0 0 0 1px var(--card-bg-color), 0 0 0 3px var(--card-focus-ring-color); }
-/* Brand, perspective switcher, actions. Below 1024px (tablet and phone) a row with the switcher
-   after the brand; from 1024px a 1fr / auto / 1fr grid, so the switcher sits on the bar's centre
-   whatever the side groups measure. 4px gaps, the Studio navbar's spacing. */
+/* Brand, perspective switcher, actions. Below 1024px (tablet and phone), or with the document pane
+   open, a row with the switcher after the brand; otherwise a 1fr / auto / 1fr grid, so the
+   switcher sits on the bar's centre whatever the side groups measure. 4px gaps, the Studio
+   navbar's spacing. */
 .preview-bar-layout { display: flex; align-items: center; gap: 4px; }
 .preview-bar-start { display: flex; align-items: center; gap: 4px; flex: none; }
 .preview-bar-center { display: flex; align-items: center; flex: 1; min-width: 0; }
@@ -675,7 +676,10 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         borderTop={position === 'bottom'}
         borderBottom={position === 'top'}
         ref={setBarElement}
-        className={barWidth >= 1024 ? 'preview-bar-card preview-bar-wide' : 'preview-bar-card'}
+        // The switcher centres on wide bars; with the document pane open it sits after the brand.
+        className={
+          barWidth >= 1024 && !pane.open ? 'preview-bar-card preview-bar-wide' : 'preview-bar-card'
+        }
         // Beside the open pane the bar narrows to the page's width, on the pane's other side.
         style={
           barBesidePanel

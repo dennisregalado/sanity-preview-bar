@@ -289,8 +289,8 @@ mountPreviewBar(target, data, {
 
 A Studio tool with Presentation's layout and the preview bar. The Studio's own document pane runs
 top to bottom on the right, following the page; beside it, the bar (rendered natively in the
-Studio, with its context) sits above the framed site, at desktop width or as a 375px phone (the
-bar's phone button animates between the two). Typing updates the framed page
+Studio, with its context) sits above the framed site, at desktop width, as a 768px tablet or as a
+375px phone (the bar's viewport menu animates between them). Typing updates the framed page
 as fast as a normal preview tab: it reads like one (no stega), so the same live updates apply.
 
 The bar's data comes from the Studio, not the site: the workspace (title, icon, project), the live

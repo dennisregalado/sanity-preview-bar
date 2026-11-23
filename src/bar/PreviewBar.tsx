@@ -896,6 +896,7 @@ function Bar({
             {inTool && (
               <ViewportButton
                 onChange={(mode) => postToHost({type: 'sanity-preview-bar:viewport', mode})}
+                onOpenChange={(open) => setOverflow('viewport-menu', open)}
                 onHoverChange={(hovered) => setOverflow('viewport', hovered)}
               />
             )}

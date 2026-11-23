@@ -34,7 +34,8 @@ describe('Visual Editor messages', () => {
 
   test('viewport, editor state and frame paths', () => {
     expect(isPreviewBarMessage({type: 'sanity-preview-bar:viewport', mode: 'mobile'})).toBe(true)
-    expect(isPreviewBarMessage({type: 'sanity-preview-bar:viewport', mode: 'tablet'})).toBe(false)
+    expect(isPreviewBarMessage({type: 'sanity-preview-bar:viewport', mode: 'tablet'})).toBe(true)
+    expect(isPreviewBarMessage({type: 'sanity-preview-bar:viewport', mode: 'watch'})).toBe(false)
     expect(isPreviewBarMessage({type: 'sanity-preview-bar:editor-state', open: true})).toBe(true)
     expect(isPreviewBarMessage({type: 'sanity-preview-bar:editor-state', open: 'yes'})).toBe(false)
     expect(isPreviewBarMessage({type: 'sanity-preview-bar:frame-path', path: '/makers'})).toBe(true)

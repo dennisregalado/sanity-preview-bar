@@ -65,6 +65,9 @@ export function isPreviewBarFrame() {
   )
 }
 
+/** The Visual Editor's viewport sizes. */
+export type PreviewBarViewport = 'desktop' | 'tablet' | 'mobile'
+
 /** A document to open in the Visual Editor's pane; a new one carries its template. */
 export type PreviewBarDocument = {
   id: string
@@ -104,8 +107,8 @@ export type PreviewBarMessage =
   | {type: 'sanity-preview-bar:editor-state'; open: boolean; available?: boolean}
   /** Bar → Visual Editor tool: Edit was clicked; open the page's document in the pane. */
   | {type: 'sanity-preview-bar:open-editor'}
-  /** Bar → Visual Editor tool: show the site at desktop width or as a 375px phone. */
-  | {type: 'sanity-preview-bar:viewport'; mode: 'desktop' | 'mobile'}
+  /** Bar → Visual Editor tool: show the site at desktop width, as a 768px tablet or a 375px phone. */
+  | {type: 'sanity-preview-bar:viewport'; mode: PreviewBarViewport}
   /** Bar → Visual Editor tool: the bar's perspective changed; the Studio follows it. */
   | {type: 'sanity-preview-bar:perspective'; selection: PreviewBarSelection}
   /** Visual Editor tool → bar: the Studio's perspective changed (pane chips, navbar); switch to it. */
@@ -184,7 +187,10 @@ export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
           typeof data.available === 'boolean')
       )
     case 'sanity-preview-bar:viewport':
-      return 'mode' in data && (data.mode === 'desktop' || data.mode === 'mobile')
+      return (
+        'mode' in data &&
+        (data.mode === 'desktop' || data.mode === 'tablet' || data.mode === 'mobile')
+      )
     case 'sanity-preview-bar:perspective':
     case 'sanity-preview-bar:set-perspective':
       return 'selection' in data && isSelection(data.selection)

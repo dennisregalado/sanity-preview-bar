@@ -35,6 +35,7 @@ import {
   PREVIEW_BAR_ROUTE,
   type PreviewBarMessage,
   type PreviewBarSelection,
+  type PreviewBarViewport,
 } from '../core/protocol'
 
 export type VisualEditorToolOptions = {
@@ -72,7 +73,8 @@ export type VisualEditorToolOptions = {
   hideStudioNavbar?: boolean
 }
 
-const MOBILE_WIDTH = 375
+/** Device widths: Presentation's narrow viewport, and a portrait tablet. */
+const VIEWPORT_WIDTHS = {tablet: 768, mobile: 375} as const
 
 const structure = {
   DocumentPane,
@@ -259,7 +261,8 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
   }, [])
 
   const siteFrame = useRef<HTMLIFrameElement | null>(null)
-  const [viewport, setViewport] = useState<'desktop' | 'mobile'>('desktop')
+  const [viewport, setViewport] = useState<PreviewBarViewport>('desktop')
+  const device = viewport === 'desktop' ? null : VIEWPORT_WIDTHS[viewport]
   const [path, setPath] = useState<string | null>(null)
   const [mainDocument, setMainDocument] = useState<{id: string; type: string} | null>(null)
   const [mainDocumentLoaded, setMainDocumentLoaded] = useState(false)
@@ -514,10 +517,13 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
           style={{
             position: 'relative',
             display: 'flex',
-            justifyContent: 'center',
+            // A device wider than the space (a tablet beside the pane) scrolls sideways; `safe`
+            // keeps its left edge reachable instead of centring it off-screen.
+            justifyContent: 'safe center',
             flex: 1,
             minHeight: 0,
-            overflow: 'hidden',
+            overflowX: device ? 'auto' : 'hidden',
+            overflowY: 'hidden',
             // Presentation's frame backdrop: the muted card colour around the phone.
             background: 'var(--card-muted-bg-color, var(--card-bg-color))',
           }}
@@ -533,12 +539,14 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
                 display: 'block',
                 flex: 'none',
                 // Shopify's phone frame: a 4px gap above and below (square corners).
-                width: viewport === 'mobile' ? MOBILE_WIDTH : '100%',
-                height: viewport === 'mobile' ? 'calc(100% - 8px)' : '100%',
-                margin: viewport === 'mobile' ? '4px 0' : 0,
+                width: device ?? '100%',
+                // The Studio's global styles cap iframes at `max-width: 100%`.
+                maxWidth: 'none',
+                height: device ? 'calc(100% - 8px)' : '100%',
+                margin: device ? '4px 0' : 0,
                 border: 0,
                 background: 'var(--card-bg-color)',
-                boxShadow: viewport === 'mobile' ? '0 0 0 1px var(--card-border-color)' : 'none',
+                boxShadow: device ? '0 0 0 1px var(--card-border-color)' : 'none',
                 transition: ['width', 'height', 'margin']
                   .map((property) => `${property} 300ms cubic-bezier(0.2, 0, 0, 1)`)
                   .join(', '),

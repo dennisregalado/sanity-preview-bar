@@ -12,9 +12,18 @@ type Props = {
   href?: string
   onClick?: () => void
   disabled?: boolean
+  /** The current choice in a menu of options (the Studio's selected menu item). */
+  selected?: boolean
 }
 
-export function StudioMenuItem({icon: IconComponent, text, href, onClick, disabled}: Props) {
+export function StudioMenuItem({
+  icon: IconComponent,
+  text,
+  href,
+  onClick,
+  disabled,
+  selected,
+}: Props) {
   const content = (
     <Flex align="center" gap={2}>
       <Box paddingRight={1}>
@@ -50,7 +59,14 @@ export function StudioMenuItem({icon: IconComponent, text, href, onClick, disabl
     )
   }
   return (
-    <MenuItem onClick={onClick} disabled={disabled} paddingX={3} paddingY={3}>
+    <MenuItem
+      onClick={onClick}
+      disabled={disabled}
+      selected={selected}
+      pressed={selected}
+      paddingX={3}
+      paddingY={3}
+    >
       {content}
     </MenuItem>
   )

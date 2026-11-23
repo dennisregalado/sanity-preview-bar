@@ -133,3 +133,51 @@ export function describeSanityPath(urlPath: string): string {
   }
   return urlPath
 }
+
+/** A document's published ID (`drafts.` and `versions.<release>.` prefixes removed). */
+export function publishedDocumentId(id: string): string {
+  return id.replace(/^drafts\./, '').replace(/^versions\.[^.]+\./, '')
+}
+
+/** A Studio path in Sanity's URL form: `['sections', {_key: 'k1'}, 'heading']` → `sections:k1.heading`. */
+export function toUrlPath(path: readonly StudioPathSegment[]): string {
+  let result = ''
+  for (const segment of path) {
+    if (typeof segment === 'string') result += result ? `.${segment}` : segment
+    else result += `:${typeof segment === 'number' ? segment : segment._key}`
+  }
+  return result
+}
+
+function sameSegment(a: StudioPathSegment, b: StudioPathSegment) {
+  if (typeof a === 'string' || typeof a === 'number') return a === b
+  return typeof b === 'object' && a._key === b._key
+}
+
+/**
+ * The nodes that show a focused field: those of the same document whose path is the longest
+ * prefix of the focused path (the field itself, or the nearest annotated element around it).
+ * A field can render more than once (a desktop and a mobile variant), so all of them match.
+ */
+export function matchFocusedNodes<T extends {node: SanityNode}>(
+  items: readonly T[],
+  focus: {id: string; path: string},
+): T[] {
+  const focused = toStudioPath(focus.path)
+  if (!focused) return []
+  const id = publishedDocumentId(focus.id)
+  let best = 0
+  let matches: T[] = []
+  for (const item of items) {
+    if (publishedDocumentId(item.node.id) !== id) continue
+    const path = toStudioPath(item.node.path)
+    if (!path || path.length > focused.length || path.length < best) continue
+    if (!path.every((segment, index) => sameSegment(segment, focused[index]!))) continue
+    if (path.length > best) {
+      best = path.length
+      matches = []
+    }
+    matches.push(item)
+  }
+  return matches
+}

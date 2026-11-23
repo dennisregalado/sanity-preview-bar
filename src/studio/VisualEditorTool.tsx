@@ -20,7 +20,7 @@ import {
 } from '@sanity/preview-url-secret/constants'
 import {type CSSProperties, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import * as sanityModule from 'sanity'
-import {type Tool, useClient, useCurrentUser, usePerspective, useWorkspace} from 'sanity'
+import {type Tool, useClient, useCurrentUser, usePerspective, useSchema, useWorkspace} from 'sanity'
 import {PresentationDocumentContext} from 'sanity/_singletons'
 import {useRouter} from 'sanity/router'
 import {DocumentPane, PaneLayout, PaneRouterContext, StructureToolProvider} from 'sanity/structure'
@@ -37,6 +37,7 @@ import {
   store,
   useViewportWidth,
 } from '../bar/pane-state'
+import {clientDocumentFetcher, createNodeDescriber, type LabelSchema} from '../core/node-labels'
 import {findPageDocumentRule, type PageDocumentRule} from '../core/page-documents'
 import {
   isPreviewBarMessage,
@@ -372,6 +373,31 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     [origin],
   )
 
+  // Click-to-edit's labels and drift check for the framed page: the Studio's schema, and documents
+  // in the Studio's perspective.
+  const schema = useSchema()
+  const describerKey = JSON.stringify(perspectiveStack)
+  const describer = useMemo(
+    () =>
+      createNodeDescriber(
+        schema as unknown as LabelSchema,
+        clientDocumentFetcher(
+          client as unknown as Parameters<typeof clientDocumentFetcher>[0],
+          perspectiveStack,
+        ),
+      ),
+    // `perspectiveStack` by value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [schema, client, describerKey],
+  )
+  const describerRef = useRef(describer)
+  describerRef.current = describer
+  const reportFocus = useCallback(
+    (focus: {id: string; path: string} | null) =>
+      postToSite({type: 'sanity-preview-bar:focus', id: focus?.id ?? '', path: focus?.path ?? ''}),
+    [postToSite],
+  )
+
   // Enabled through a secret: store the perspective once the site is in, then refresh it.
   const pathKnown = path !== null
   useEffect(() => {
@@ -578,11 +604,19 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
           applyEdit(base, message, main?.id ?? null, setStack)
           break
         }
+        case 'sanity-preview-bar:describe':
+          describerRef
+            .current(message.nodes)
+            .then((labels) => postToSite({type: 'sanity-preview-bar:labels', labels}))
+            .catch((error: unknown) =>
+              console.warn('sanity-preview-bar: could not describe the page', error),
+            )
+          break
       }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [origin, postToBar])
+  }, [origin, postToBar, postToSite])
 
   // Everything shows as soon as it's ready: the bar at once (Studio data), the page and the pane
   // each behind a skeleton until theirs arrives. The pane's column is held from the start, so the
@@ -688,6 +722,7 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
                 stack={stack}
                 onChange={changeStack}
                 onIntent={onIntent}
+                onFocusPath={reportFocus}
                 fallback={<PaneSkeleton />}
               />
             </PresentationDocumentContext.Provider>

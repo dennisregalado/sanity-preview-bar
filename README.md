@@ -480,9 +480,19 @@ document opens there (an array item opens its editor, a field gets focus); any o
 opens above it in the pane, and × goes back. On the site this is on while the document pane is
 open; in the Visual Editor tool's frame it's always on.
 
+- **Labels** are the Studio's own titles: the section's type and the field (`Image Hero › Title`),
+  a block by its style (`Heading 1`), a reference by what it points to. The bar or the Visual Editor
+  resolves them from the schema and the document, so the schema never ships to the page.
+- **Focus from the pane:** the field the editor is in is outlined on the page, and scrolled into
+  view when it's off screen. A field without its own annotation outlines the nearest one around it.
+- **Drift check:** while click-to-edit is on, every annotation on the page is checked against the
+  schema and the document (when the page is idle, and again when its annotations change). One that
+  doesn't resolve, say a field renamed in the schema but not in the component, gets a dashed red
+  outline, a red label and a console warning.
+
 - <kbd>⌘\</kbd> / <kbd>Ctrl+\</kbd> turns it off and on (remembered for the tab).
-- Hold <kbd>Alt</kbd> / <kbd>⌥</kbd> to hide the outline and let clicks through to the page.
-- <kbd>Esc</kbd> clears the outline until the pointer moves.
+- Hold <kbd>Alt</kbd> / <kbd>⌥</kbd> to hide the outlines and let clicks through to the page.
+- <kbd>Esc</kbd> clears the hover outline until the pointer moves.
 
 Pass `clickToEdit: false` to `mountPreviewBarHost` or `mountPreviewBarFrame` to turn it off.
 `mountClickToEdit` (from `sanity-preview-bar/host`) runs the engine on its own; `npm run example`

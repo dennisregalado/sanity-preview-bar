@@ -12,6 +12,7 @@
  * and the header's close button (the router's `BackLink`) goes back, closing the panel from the
  * page's document.
  */
+import {type StudioPath, toUrlPath} from '../core/sanity-node'
 import {
   type ComponentType,
   type Context,
@@ -229,6 +230,7 @@ export function DocumentPanel({
   stack,
   onChange,
   onIntent,
+  onFocusPath,
   fallback,
 }: {
   structure: StructureModule
@@ -237,10 +239,36 @@ export function DocumentPanel({
   onChange: (stack: PanelEntry[]) => void
   /** Intents the pane can't show itself (other tools, documents without a type). */
   onIntent: IntentHandler
+  /**
+   * The field focused in the pane (`path` in URL form), for click-to-edit's focus outline; `null`
+   * when nothing is focused, another document opens or the pane closes.
+   */
+  onFocusPath?: (focus: {id: string; path: string} | null) => void
   fallback: ReactNode
 }) {
   const entry = stack[stack.length - 1]
   const depth = stack.length - 1
+
+  // A stable callback: the form's focus handling depends on it.
+  const focusRef = useRef({onFocusPath, id: entry?.id})
+  focusRef.current = {onFocusPath, id: entry?.id}
+  const handleFocusPath = useCallback((path: unknown[]) => {
+    const {onFocusPath: report, id} = focusRef.current
+    // Up to the first segment the URL form can't carry (a range in a Portable Text selection).
+    const end = path.findIndex(
+      (segment) =>
+        typeof segment !== 'string' &&
+        typeof segment !== 'number' &&
+        !(typeof segment === 'object' && segment !== null && '_key' in segment),
+    )
+    const urlPath = toUrlPath((end < 0 ? path : path.slice(0, end)) as StudioPath)
+    report?.(id && urlPath ? {id, path: urlPath} : null)
+  }, [])
+  const paneKey = `${depth}:${entry?.id}`
+  useEffect(() => {
+    focusRef.current.onFocusPath?.(null)
+  }, [paneKey])
+  useEffect(() => () => focusRef.current.onFocusPath?.(null), [])
 
   const onParams = useCallback(
     (params: PaneParams) =>
@@ -289,6 +317,7 @@ export function DocumentPanel({
               index={1}
               itemId="document"
               pane={pane}
+              onFocusPath={handleFocusPath}
             />
           </Suspense>
         </PaneRouter>

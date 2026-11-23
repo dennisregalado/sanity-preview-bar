@@ -459,6 +459,13 @@ function Brand({
         rel={inTool ? undefined : 'noopener'}
         aria-label={inTool ? 'Back to Sanity Studio' : 'Open Sanity Studio'}
         className="preview-bar-home"
+        onClick={(event) => {
+          // In the tool the Studio's router goes home (no reload); modifier clicks keep the link.
+          if (!inTool || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0)
+            return
+          event.preventDefault()
+          postToHost({type: 'sanity-preview-bar:studio-home'})
+        }}
       >
         <Flex
           align="center"

@@ -105,6 +105,8 @@ export type PreviewBarMessage =
   | {type: 'sanity-preview-bar:perspective'; selection: PreviewBarSelection}
   /** Visual Editor tool → bar: the Studio's perspective changed (pane chips, navbar); switch to it. */
   | {type: 'sanity-preview-bar:set-perspective'; selection: PreviewBarSelection}
+  /** Bar → Visual Editor tool: the logo was clicked; go to the Studio (its router, no reload). */
+  | {type: 'sanity-preview-bar:studio-home'}
   /** Site framed by the Visual Editor tool → tool: its path and query, on load and navigation. */
   | {type: 'sanity-preview-bar:frame-path'; path: string}
   /**
@@ -144,6 +146,7 @@ export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
     case 'sanity-preview-bar:refreshed':
     case 'sanity-preview-bar:search':
     case 'sanity-preview-bar:pane':
+    case 'sanity-preview-bar:studio-home':
       return true
     case 'sanity-preview-bar:navigate':
       return 'href' in data && isRootRelative(data.href)

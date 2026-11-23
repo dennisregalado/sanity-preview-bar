@@ -19,7 +19,7 @@ import {
 } from '@sanity/preview-url-secret/constants'
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import * as sanityModule from 'sanity'
-import {type Tool, useClient, useCurrentUser, usePerspective} from 'sanity'
+import {type Tool, useClient, useCurrentUser, usePerspective, useWorkspace} from 'sanity'
 import {PresentationDocumentContext} from 'sanity/_singletons'
 import {useRouter} from 'sanity/router'
 import {DocumentPane, PaneLayout, PaneRouterContext, StructureToolProvider} from 'sanity/structure'
@@ -90,6 +90,9 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
   const origin = window.location.origin
 
   const router = useRouter()
+  const {basePath} = useWorkspace()
+  const basePathRef = useRef(basePath)
+  basePathRef.current = basePath
   const routerRef = useRef(router)
   routerRef.current = router
   const initialPath = useMemo(() => {
@@ -308,6 +311,10 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
         } as never)
         break
       }
+      case 'sanity-preview-bar:studio-home':
+        // The workspace's root, through the Studio's router (its default tool), no reload.
+        routerRef.current.navigateUrl({path: basePathRef.current || '/'})
+        break
       // `menu` (overlays need no unclipping here) and `hide` don't apply in the tool.
     }
   }

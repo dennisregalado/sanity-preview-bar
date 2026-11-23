@@ -28,6 +28,7 @@ import {
   useState,
 } from 'react'
 import {PREVIEW_BAR_HEIGHT, type PaneSide} from '../core/protocol'
+import {clientDocumentFetcher, createNodeDescriber, type LabelSchema} from '../core/node-labels'
 import {DocumentPanel, type PanelEntry, type StructureModule} from './DocumentPanel'
 import {NewDocumentMenu, type NewDocumentOption, type NewDocumentSanity} from './NewDocumentMenu'
 
@@ -45,6 +46,9 @@ export type StudioSearch = {
 }
 
 type SchemaType = {name: string; title?: string}
+
+/** Click-to-edit's describer: labels and drift for `data-sanity` nodes. */
+export type NodeDescriber = ReturnType<typeof createNodeDescriber>
 
 type SanityModule = {
   ALL_FIELDS_GROUP: {name: string}
@@ -68,6 +72,7 @@ type SanityModule = {
   }
   useSchema: () => {get: (name: string) => SchemaType | undefined}
   useClient: (options: {apiVersion: string}) => unknown
+  usePerspective: () => {perspectiveStack: unknown}
   useCurrentUser: () => {id: string} | null
   useMiddlewareComponents: <T extends object>(props: {
     pick: (plugin: {
@@ -164,6 +169,8 @@ export type StudioPanel = {
   side: PaneSide
   /** Drag (or arrow-key) resizing from the pane's inner edge; `null` when it overlays the page. */
   resize: {start: () => void; to: (width: number) => void; end: () => void} | null
+  /** The field focused in the pane, for click-to-edit's focus outline on the page. */
+  onFocusPath?: (focus: {id: string; path: string} | null) => void
 }
 
 /** Intent parameters from a Studio intent path segment, `id=abc;type=page`. */
@@ -263,6 +270,38 @@ function SharingClientBridge({
     onClient({client, userId})
     return () => onClient(null)
   }, [client, userId, onClient])
+  return null
+}
+
+/**
+ * Reports a describer for click-to-edit's labels and drift check: the project's schema and the
+ * editor's client, in the Studio's perspective.
+ */
+function NodeDescriberBridge({
+  sanity,
+  onDescriber,
+}: {
+  sanity: SanityModule
+  onDescriber: (describe: NodeDescriber | null) => void
+}) {
+  const schema = sanity.useSchema() as unknown as LabelSchema
+  const client = sanity.useClient({apiVersion: '2025-02-19'})
+  const {perspectiveStack} = sanity.usePerspective()
+  const stackKey = JSON.stringify(perspectiveStack)
+  useEffect(() => {
+    onDescriber(
+      createNodeDescriber(
+        schema,
+        clientDocumentFetcher(
+          client as Parameters<typeof clientDocumentFetcher>[0],
+          perspectiveStack,
+        ),
+      ),
+    )
+    return () => onDescriber(null)
+    // `perspectiveStack` by value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schema, client, stackKey, onDescriber])
   return null
 }
 
@@ -424,6 +463,7 @@ function PanelColumn({
                 stack={panel.stack}
                 onChange={panel.onChange}
                 onIntent={onIntent}
+                onFocusPath={panel.onFocusPath}
                 fallback={<PanelLoading />}
               />
             </modules.presentationDocument.Provider>
@@ -469,6 +509,7 @@ export function StudioLayer({
   perspective,
   onPerspectiveChange,
   onSharingClient,
+  onDescriber,
   newDocument,
   panel,
   allFieldsGroup = true,
@@ -495,6 +536,8 @@ export function StudioLayer({
   }
   /** Receives the editor's Studio client and user ID, for toggling Presentation's sharing. */
   onSharingClient?: (studio: {client: unknown; userId?: string} | null) => void
+  /** Receives click-to-edit's describer (labels and drift), once the Studio is running. */
+  onDescriber?: (describe: NodeDescriber | null) => void
   /** The document pane, when the bar offers one. */
   panel?: StudioPanel
   /** `false` hides field groups' "All fields" tab in this copy of the Studio. */
@@ -595,6 +638,7 @@ export function StudioLayer({
   const content = (
     <>
       {onSharingClient && <SharingClientBridge sanity={sanity} onClient={onSharingClient} />}
+      {onDescriber && <NodeDescriberBridge sanity={sanity} onDescriber={onDescriber} />}
       {newDocument?.open && (
         <NewDocumentMenu
           sanity={sanity as unknown as NewDocumentSanity}

@@ -4,7 +4,11 @@
  * imports React or Sanity UI. Both sides post to, and accept from, this origin and their
  * counterpart window only.
  */
-import {MAX_EDIT_PATH_LENGTH} from './sanity-node'
+import type {NodeLabel} from './node-labels'
+import {MAX_EDIT_PATH_LENGTH, type SanityNode} from './sanity-node'
+
+/** Most nodes one `describe` or `labels` message carries. */
+export const MAX_DESCRIBE_NODES = 500
 
 /** Default route for the framed bar; its endpoints live under it (`/preview-bar/search`, …). */
 export const PREVIEW_BAR_ROUTE = '/preview-bar'
@@ -132,6 +136,19 @@ export type PreviewBarMessage =
    * stack.
    */
   | {type: 'sanity-preview-bar:edit'; id: string; documentType: string; path: string}
+  /**
+   * Bar or Visual Editor tool → host or framed site: the document pane focused a field (`path` in
+   * URL form) of document `id`; the overlay outlines the elements that show it and scrolls one into
+   * view. Empty `id` and `path` clear it.
+   */
+  | {type: 'sanity-preview-bar:focus'; id: string; path: string}
+  /**
+   * Host or framed site → bar or Visual Editor tool: label these `data-sanity` nodes (field titles
+   * from the Studio's schema) and check that their paths resolve. Answered with `labels`.
+   */
+  | {type: 'sanity-preview-bar:describe'; nodes: SanityNode[]}
+  /** Bar or Visual Editor tool → host or framed site: the answer to `describe`. */
+  | {type: 'sanity-preview-bar:labels'; labels: NodeLabel[]}
 
 export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
   if (typeof data !== 'object' || data === null || !('type' in data)) return false
@@ -200,9 +217,55 @@ export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
         isNonEmptyString(data.path) &&
         data.path.length <= MAX_EDIT_PATH_LENGTH
       )
+    case 'sanity-preview-bar:focus':
+      return (
+        'id' in data &&
+        typeof data.id === 'string' &&
+        'path' in data &&
+        typeof data.path === 'string' &&
+        data.path.length <= MAX_EDIT_PATH_LENGTH
+      )
+    case 'sanity-preview-bar:describe':
+      return (
+        'nodes' in data &&
+        Array.isArray(data.nodes) &&
+        data.nodes.length <= MAX_DESCRIBE_NODES &&
+        data.nodes.every(isNode)
+      )
+    case 'sanity-preview-bar:labels':
+      return (
+        'labels' in data &&
+        Array.isArray(data.labels) &&
+        data.labels.length <= MAX_DESCRIBE_NODES &&
+        data.labels.every(isLabel)
+      )
     default:
       return false
   }
+}
+
+function isNode(value: unknown): value is SanityNode {
+  if (typeof value !== 'object' || value === null) return false
+  const node = value as Record<string, unknown>
+  return (
+    isNonEmptyString(node.id) &&
+    isNonEmptyString(node.type) &&
+    isNonEmptyString(node.path) &&
+    node.path.length <= MAX_EDIT_PATH_LENGTH
+  )
+}
+
+function isLabel(value: unknown): value is NodeLabel {
+  if (typeof value !== 'object' || value === null) return false
+  const label = value as Record<string, unknown>
+  return (
+    isNonEmptyString(label.id) &&
+    isNonEmptyString(label.path) &&
+    label.path.length <= MAX_EDIT_PATH_LENGTH &&
+    typeof label.label === 'string' &&
+    label.label.length <= 200 &&
+    (label.missing === undefined || typeof label.missing === 'boolean')
+  )
 }
 
 function isDocument(value: unknown): value is PreviewBarDocument {

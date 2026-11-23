@@ -43,7 +43,7 @@ import {InspectorButton} from './InspectorButton'
 import {NativePagePreview, PagePicker, pageFallbackTitle} from './PagePicker'
 import {ViewportButton} from './ViewportButton'
 import {ShareMenu, type StudioSharingClient} from './ShareMenu'
-import {type StudioConfigLoader, StudioLayer} from './StudioLayer'
+import {type NodeDescriber, type StudioConfigLoader, StudioLayer} from './StudioLayer'
 
 export type {StudioConfigLoader}
 
@@ -739,6 +739,28 @@ function Bar({
       if (message.type === 'sanity-preview-bar:edit') editInPane(message)
     })
   }, [panelEnabled, signedIn, editInPane])
+  // Labels and the drift check for the host's overlay, from the Studio layer's schema and client.
+  const describer = useRef<NodeDescriber | null>(null)
+  const setDescriber = useCallback((next: NodeDescriber | null) => {
+    describer.current = next
+  }, [])
+  useEffect(() => {
+    if (!panelEnabled || !signedIn) return
+    return host.subscribe((message) => {
+      if (message.type !== 'sanity-preview-bar:describe') return
+      describer
+        .current?.(message.nodes)
+        .then((labels) => postToHost({type: 'sanity-preview-bar:labels', labels}))
+        .catch((error: unknown) =>
+          console.warn('sanity-preview-bar: could not describe the page', error),
+        )
+    })
+  }, [panelEnabled, signedIn])
+  const reportFocus = useCallback(
+    (focus: {id: string; path: string} | null) =>
+      postToHost({type: 'sanity-preview-bar:focus', id: focus?.id ?? '', path: focus?.path ?? ''}),
+    [],
+  )
   // "Create new document": the Studio's popover, then the new document in the pane.
   const [newDocumentOpen, setNewDocumentOpen] = useState(false)
   const [newDocumentAnchor, setNewDocumentAnchor] = useState<HTMLElement | null>(null)
@@ -1058,6 +1080,7 @@ function Bar({
             perspective={studioPerspective}
             onPerspectiveChange={switchPerspective}
             onSharingClient={setStudioSharing}
+            onDescriber={panelEnabled ? setDescriber : undefined}
             newDocument={{
               open: newDocumentOpen,
               anchor: newDocumentAnchor,
@@ -1075,6 +1098,7 @@ function Bar({
                     barPosition: position,
                     side: paneSide,
                     resize: pane.resize,
+                    onFocusPath: reportFocus,
                   }
                 : undefined
             }

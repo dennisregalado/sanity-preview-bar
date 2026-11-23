@@ -154,6 +154,10 @@
           Hover a heading, a card or the header. Click one: the page doesn’t follow the link, and
           the edit message shows in the log.
         </p>
+        <!-- Drift: the schema has no "tagline" field, so this gets a dashed red outline. -->
+        <p data-sanity="id=page-home;type=page;path=sections:hero.tagline">
+          An annotation whose path the document doesn’t have.
+        </p>
       </section>
 
       <section id="shop" data-sanity="id=page-home;type=page;path=sections:featured">
@@ -197,7 +201,19 @@
         <li>Click an outlined element: the edit message is logged, links aren’t followed.</li>
         <li>Hold <kbd>Alt</kbd>/<kbd>⌥</kbd>: no outline, clicks reach the page.</li>
         <li><kbd>⌘\</kbd> / <kbd>Ctrl+\</kbd> turns it off and on. <kbd>Esc</kbd> clears it.</li>
+        <li>
+          Labels and the red drift outline come from a stand-in schema (the Studio's, for real).
+        </li>
       </ul>
+      <label
+        >Focus from the pane
+        <select id="focus">
+          <option value="">None</option>
+          <option value="page-home|sections:featured.heading">Featured › Heading</option>
+          <option value="product-2|title">Mesa Coffee Table › Title</option>
+          <option value="page-home|sections:makers.body.children:s1">Makers › Body (deeper)</option>
+        </select></label
+      >
       <label><input id="active" type="checkbox" checked /> Document pane open (site)</label>
       <label><input id="rerender" type="checkbox" /> Re-render the hero heading every 300 ms</label>
       <pre id="log"></pre>

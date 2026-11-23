@@ -167,7 +167,11 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
   const clickToEdit =
     options.clickToEdit === false
       ? null
-      : mountClickToEdit({active: false, onEdit: (node) => post(editMessage(node))})
+      : mountClickToEdit({
+          active: false,
+          onEdit: (node) => post(editMessage(node)),
+          onDescribe: (nodes) => post({type: 'sanity-preview-bar:describe', nodes}),
+        })
 
   // Reserve room so the bar never covers the footer (or, at the top, the start of the page).
   const root = document.documentElement
@@ -216,6 +220,12 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
         panelSide = event.data.side
         layout()
         clickToEdit?.setActive(event.data.open)
+        break
+      case 'sanity-preview-bar:labels':
+        clickToEdit?.setLabels(event.data.labels)
+        break
+      case 'sanity-preview-bar:focus':
+        clickToEdit?.setFocus(event.data)
         break
       case 'sanity-preview-bar:navigate':
         void options.navigate(event.data.href)
@@ -318,6 +328,12 @@ export function mountPreviewBarFrame(options: PreviewBarFrameOptions): PreviewBa
           .then(() => options.refresh())
           .finally(() => post({type: 'sanity-preview-bar:refreshed'}))
         break
+      case 'sanity-preview-bar:labels':
+        clickToEdit?.setLabels(event.data.labels)
+        break
+      case 'sanity-preview-bar:focus':
+        clickToEdit?.setFocus(event.data)
+        break
     }
   }
 
@@ -327,7 +343,10 @@ export function mountPreviewBarFrame(options: PreviewBarFrameOptions): PreviewBa
   const clickToEdit =
     options.clickToEdit === false
       ? null
-      : mountClickToEdit({onEdit: (node) => post(editMessage(node))})
+      : mountClickToEdit({
+          onEdit: (node) => post(editMessage(node)),
+          onDescribe: (nodes) => post({type: 'sanity-preview-bar:describe', nodes}),
+        })
 
   return {
     setPath(next) {

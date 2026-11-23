@@ -74,7 +74,13 @@ type SanityModule = {
   }) => ComponentType<T>
 }
 
-type MemoryHistory = {replace: (path: string) => void}
+type MemoryHistory = {
+  location: {pathname: string; search: string}
+  replace: (path: string) => void
+}
+
+/** The perspective sticky params the bar controls. */
+const PERSPECTIVE_PARAMS = ['perspective', 'excludedPerspectives']
 
 type SchemaDefinition = {groups?: Array<{name: string}>; fields?: unknown[]; of?: unknown[]}
 
@@ -437,10 +443,20 @@ export function StudioLayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, studioPath])
 
-  // A perspective switch in the bar moves the Studio router's sticky params with it.
+  // A perspective switch in the bar moves the Studio router's sticky params with it. Only the params
+  // change: the router redirects the bare base path to a tool, and while it resolves a path it has
+  // no state, so `WorkspaceRouterProvider` swaps its children for a loading screen, which remounted
+  // the document pane on every switch.
   useEffect(() => {
-    loaded?.history.replace(location)
-  }, [loaded, location])
+    if (!loaded) return
+    const {pathname, search} = loaded.history.location
+    const params = new URLSearchParams(search)
+    for (const name of PERSPECTIVE_PARAMS) params.delete(name)
+    for (const [name, value] of new URLSearchParams(perspective ?? '')) params.set(name, value)
+    const query = params.toString()
+    const next = query ? `${pathname}?${query}` : pathname
+    if (next !== `${pathname}${search}`) loaded.history.replace(next)
+  }, [loaded, perspective])
 
   // Intents the pane can't show itself: an edit intent for a document opens it in the pane;
   // anything else opens in the Studio, in a new tab.

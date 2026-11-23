@@ -1,3 +1,4 @@
+import type {ReactNode} from 'react'
 import type {SearchKindOption} from './link-search'
 import type {ReleaseDocument} from './perspective'
 
@@ -10,6 +11,11 @@ export type PreviewBarBrand = {
    * `fill="currentColor"` to follow the bar's text colour) or an image URL.
    */
   logo?: string
+  /**
+   * The Studio's own workspace icon, used in place of `logo` when the bar renders inside the Studio
+   * (the Visual Editor tool). Not serializable, so never set on the server.
+   */
+  icon?: ReactNode
   /**
    * The Sanity project's name, shown above the title in the workspace menu (the Studio reads it
    * from the management API with the editor's session, which the bar doesn't have).

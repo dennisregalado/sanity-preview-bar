@@ -12,7 +12,6 @@ import {
   type PreviewPerspective,
   serializePerspective,
 } from '../core/perspective'
-import {isPresentationRequest} from '../core/presentation'
 import type {PreviewBar, PreviewClient, PreviewContext, PreviewModeSwitch} from '../server'
 import {deleteCookieHeader} from '../server'
 
@@ -121,8 +120,8 @@ export function createSvelteKitPreviewBar(options: SvelteKitPreviewBarOptions) {
 }
 
 /**
- * Applies the perspective cookie to `event.locals.sanity.client` in preview, and keeps stega (and
- * so Visual Editing's overlays) to requests from inside the Studio's Presentation tool. Add it to
+ * Applies the perspective cookie to `event.locals.sanity.client` in preview, without stega: preview
+ * pages read clean strings (and the realtime preview hub, which has no source maps). Add it to
  * `sequence(...)` after `handlePreviewMode`. Typed structurally rather than as Kit's `Handle`,
  * which moved to `@sveltejs/kit/hooks` in Kit 3, so it fits both majors.
  */
@@ -137,10 +136,7 @@ export const handlePreviewPerspective = ({
   if (sanity?.previewEnabled) {
     const perspective: PreviewPerspective = parsePerspective(event.cookies.get(PERSPECTIVE_COOKIE))
     sanity.previewPerspective = perspective
-    const stega = isPresentationRequest(event.request)
-    if (perspective !== 'drafts' || !stega) {
-      sanity.client = sanity.client.withConfig({perspective, ...(stega ? {} : {stega: false})})
-    }
+    sanity.client = sanity.client.withConfig({perspective, stega: false})
   }
   return resolve(event)
 }

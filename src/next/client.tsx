@@ -9,12 +9,11 @@ import {usePathname, useRouter} from 'next/navigation'
 import {useEffect, useRef, useState} from 'react'
 
 import type {PreviewBarData, PreviewLinkErrorData} from '../core/data'
-import {markPresentationFetches} from '../core/presentation'
 import {isTopWindow, type PreviewBarHost as Host} from '../host'
 
 /**
- * Mounts the bar's frame in the top window while draft mode is on. Skipped inside the Studio's
- * Presentation iframe, which has its own chrome.
+ * Mounts the bar's frame in the top window while draft mode is on. Skipped in frames: the Studio's
+ * Visual Editor frames the site with its own bar.
  */
 export function PreviewBarHost({basePath}: {basePath?: string}) {
   const router = useRouter()
@@ -47,18 +46,6 @@ export function PreviewBarHost({basePath}: {basePath?: string}) {
     host?.setPath(window.location.pathname + window.location.search)
   }, [host, pathname])
 
-  return null
-}
-
-/**
- * Inside Presentation, marks the page's same-origin fetches so the server can keep stega to
- * Presentation requests (see `isPresentationRequest`). Render it in draft mode; it does nothing in
- * the top window.
- */
-export function PresentationFetchMarker() {
-  useEffect(() => {
-    if (!isTopWindow()) markPresentationFetches()
-  }, [])
   return null
 }
 

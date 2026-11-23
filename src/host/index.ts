@@ -48,8 +48,8 @@ export type PreviewBarHost = {
 }
 
 /**
- * Whether this window should show the bar: the top window only. Inside the Studio's Presentation
- * iframe the Studio has its own chrome, and other embeds (thumbnails) shouldn't get a bar.
+ * Whether this window should show the bar: the top window only. The Studio's Visual Editor frames
+ * the site with its own bar, and other embeds (thumbnails) shouldn't get one.
  */
 export function isTopWindow() {
   return typeof window !== 'undefined' && window.self === window.top
@@ -251,3 +251,62 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
     destroy,
   }
 }
+
+export type PreviewBarFrameOptions = {
+  /** Reruns the page's data in place, no reload (SvelteKit `refreshAll`, Next.js `router.refresh`). */
+  refresh: () => unknown
+  /** Client-side navigation to a root-relative href (SvelteKit `goto`, Next.js `router.push`). */
+  navigate: (href: string) => unknown
+  /** The current path and query. Default `location.pathname + location.search`. */
+  path?: string
+}
+
+/**
+ * The site's side when the Studio's Visual Editor tool frames it (`isPreviewBarFrame()`): no bar
+ * here (the tool shows it above the frame), just the tool's messages. The page reports its path
+ * on load and after every navigation (`setPath`), reruns its data when the bar switches
+ * perspective, and navigates when a search result is picked. Only the parent window on this
+ * origin is listened to.
+ */
+export function mountPreviewBarFrame(options: PreviewBarFrameOptions): PreviewBarHost {
+  let path = options.path ?? currentPath()
+  let destroyed = false
+
+  function post(message: PreviewBarMessage) {
+    window.parent.postMessage(message, window.location.origin)
+  }
+
+  function onMessage(event: MessageEvent) {
+    if (event.origin !== window.location.origin || event.source !== window.parent) return
+    if (!isPreviewBarMessage(event.data)) return
+    switch (event.data.type) {
+      case 'sanity-preview-bar:ready':
+        post({type: 'sanity-preview-bar:frame-path', path})
+        break
+      case 'sanity-preview-bar:navigate':
+        void options.navigate(event.data.href)
+        break
+      case 'sanity-preview-bar:refresh':
+        Promise.resolve()
+          .then(() => options.refresh())
+          .finally(() => post({type: 'sanity-preview-bar:refreshed'}))
+        break
+    }
+  }
+
+  window.addEventListener('message', onMessage)
+  post({type: 'sanity-preview-bar:frame-path', path})
+
+  return {
+    setPath(next) {
+      path = next
+      if (!destroyed) post({type: 'sanity-preview-bar:frame-path', path})
+    },
+    destroy() {
+      destroyed = true
+      window.removeEventListener('message', onMessage)
+    },
+  }
+}
+
+export {isPreviewBarFrame} from '../core/protocol'

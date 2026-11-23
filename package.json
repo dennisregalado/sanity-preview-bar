@@ -52,6 +52,10 @@
       "source": "./src/next/client.tsx",
       "default": "./dist/next-client.js"
     },
+    "./studio": {
+      "source": "./src/studio/index.ts",
+      "default": "./dist/studio.js"
+    },
     "./package.json": "./package.json"
   },
   "types": "./dist/index.d.ts",
@@ -128,6 +132,7 @@
       "./sveltekit": "./dist/sveltekit.js",
       "./next": "./dist/next.js",
       "./next/client": "./dist/next-client.js",
+      "./studio": "./dist/studio.js",
       "./package.json": "./package.json"
     }
   }

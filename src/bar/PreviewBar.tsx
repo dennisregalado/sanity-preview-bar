@@ -17,6 +17,7 @@ import type {PreviewBarData} from '../core/data'
 import {
   parsePerspective,
   perspectiveTone,
+  selectionOf,
   serializePerspective,
   type PreviewPerspective,
 } from '../core/perspective'
@@ -24,6 +25,8 @@ import {
   isPreviewBarMessage,
   type PaneSide,
   type PreviewBarMessage,
+  type PreviewBarSelection,
+  readPreviewBarContext,
   readPreviewBarPosition,
 } from '../core/protocol'
 import {BarDataContext, BarPositionContext, useBarData, useBarPlacement} from './context'
@@ -35,8 +38,10 @@ import {StudioMenuItem} from './StudioMenuItem'
 import {StudioTooltip} from './StudioTooltip'
 import {WorkspaceMenu} from './WorkspaceMenu'
 import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
-import {useDocumentPaneState} from './pane-state'
+import {publishedId, useDocumentPaneState} from './pane-state'
 import {InspectorButton} from './InspectorButton'
+import {NativePagePreview, PagePicker, pageFallbackTitle} from './PagePicker'
+import {ViewportButton} from './ViewportButton'
 import {ShareMenu, type StudioSharingClient} from './ShareMenu'
 import {type StudioConfigLoader, StudioLayer} from './StudioLayer'
 
@@ -56,6 +61,12 @@ export type PreviewBarOptions = {
    * server's `pageDocuments`; editors only. Default `false`.
    */
   documentPane?: boolean | DocumentPaneOptions
+  /**
+   * The Studio has the Visual Editor tool (`visualEditorTool()` from `sanity-preview-bar/studio`):
+   * **Edit** opens this page there, in the same tab (`true` for the default tool name, or
+   * `{tool}` for another). With `documentPane` as well, `E` still opens the pane on the site.
+   */
+  visualEditor?: boolean | {tool?: string}
 }
 
 /** `documentPane` settings. */
@@ -80,6 +91,8 @@ const CARD_CSS = `
 /* HomeButton's StyledCard: radius 2 (3px), no underline, focus ring only for keyboard focus. */
 /* The active search result (keyboard or pointer), like the Studio's CommandList active item. */
 .preview-search-row[data-active] { background-color: var(--card-muted-bg-color); }
+/* The Visual Editor's search layer lets clicks through, except on the search's backdrop and card. */
+.preview-bar-search-layer * { pointer-events: auto; }
 .preview-bar-home { display: flex; border-radius: 3px; outline: none; text-decoration: none; }
 .preview-bar-home:focus-visible { box-shadow: 0 0 0 1px var(--card-bg-color), 0 0 0 3px var(--card-focus-ring-color); }
 /* Brand, perspective switcher, actions. Below 1024px (tablet and phone), or with the document pane
@@ -112,18 +125,48 @@ const CARD_CSS = `
 .preview-bar-spinner { animation: preview-bar-spin 0.6s linear infinite; }
 `
 
+/**
+ * How the bar reaches its host. Framed (on the site, by `sanity-preview-bar/host`), that's the
+ * parent window on this origin. Rendered natively in the Studio's Visual Editor tool, it's the
+ * tool itself (`mountPreviewBar`'s `host` option). Same messages either way.
+ */
+export type BarHost = {
+  post: (message: PreviewBarMessage) => void
+  subscribe: (listener: (message: PreviewBarMessage) => void) => () => void
+  /** The page's path and query when the bar mounts, when the host already knows it. */
+  initialPath: () => string | null
+}
+
+const frameHost: BarHost = {
+  post: (message) => window.parent.postMessage(message, window.location.origin),
+  subscribe(listener) {
+    function onMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin || event.source !== window.parent) return
+      if (isPreviewBarMessage(event.data)) listener(event.data)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  },
+  initialPath() {
+    try {
+      const {pathname, search} = window.parent.location
+      return `${pathname}${search}`
+    } catch {
+      return null
+    }
+  },
+}
+
+/** One bar per document: set by `mountPreviewBar`. */
+let host: BarHost = frameHost
+
 function postToHost(message: PreviewBarMessage) {
-  window.parent.postMessage(message, window.location.origin)
+  host.post(message)
 }
 
 /** The storefront page's path and query, seeded from the parent (same origin) and kept current by the host. */
 function readParentPath() {
-  try {
-    const {pathname, search} = window.parent.location
-    return `${pathname}${search}`
-  } catch {
-    return null
-  }
+  return host.initialPath()
 }
 
 /**
@@ -135,15 +178,14 @@ function useHostPath() {
   const [path, setPath] = useState<string | null>(readParentPath)
 
   useEffect(() => {
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin || event.source !== window.parent) return
-      if (isPreviewBarMessage(event.data) && event.data.type === 'sanity-preview-bar:path') {
-        setPath(event.data.path)
+    function onMessage(message: PreviewBarMessage) {
+      if (message.type === 'sanity-preview-bar:path') {
+        setPath(message.path)
       }
     }
-    window.addEventListener('message', onMessage)
+    const unsubscribe = host.subscribe(onMessage)
     postToHost({type: 'sanity-preview-bar:ready'})
-    return () => window.removeEventListener('message', onMessage)
+    return () => unsubscribe()
   }, [])
 
   return path
@@ -157,14 +199,13 @@ function useHostRefresh() {
   const pending = useRef<(() => void)[]>([])
 
   useEffect(() => {
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin || event.source !== window.parent) return
-      if (isPreviewBarMessage(event.data) && event.data.type === 'sanity-preview-bar:refreshed') {
+    function onMessage(message: PreviewBarMessage) {
+      if (message.type === 'sanity-preview-bar:refreshed') {
         for (const resolve of pending.current.splice(0)) resolve()
       }
     }
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
+    const unsubscribe = host.subscribe(onMessage)
+    return () => unsubscribe()
   }, [])
 
   return useCallback(
@@ -286,15 +327,14 @@ function usePaneShortcut(toggle: () => void, enabled: boolean) {
       event.preventDefault()
       toggle()
     }
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin || event.source !== window.parent) return
-      if (isPreviewBarMessage(event.data) && event.data.type === 'sanity-preview-bar:pane') toggle()
+    function onMessage(message: PreviewBarMessage) {
+      if (message.type === 'sanity-preview-bar:pane') toggle()
     }
     window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('message', onMessage)
+    const unsubscribe = host.subscribe(onMessage)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('message', onMessage)
+      unsubscribe()
     }
   }, [toggle, enabled])
 }
@@ -398,9 +438,12 @@ function Brand({
   showTitle,
   onSearch,
   newDocument,
+  inTool,
   setOverflow,
 }: {
   showTitle: boolean
+  /** In the Visual Editor tool the logo goes back to the Studio, in the same tab. */
+  inTool: boolean
   onSearch: () => void
   /** The Studio navbar's "Create new document" button (signed-in editors). */
   newDocument: {
@@ -415,17 +458,24 @@ function Brand({
     <Flex align="center" gap={1} flex="none">
       <a
         href={studioPath}
-        target="_blank"
-        rel="noopener"
-        aria-label="Open Sanity Studio"
+        target={inTool ? '_top' : '_blank'}
+        rel={inTool ? undefined : 'noopener'}
+        aria-label={inTool ? 'Back to Sanity Studio' : 'Open Sanity Studio'}
         className="preview-bar-home"
+        onClick={(event) => {
+          // In the tool the Studio's router goes home (no reload); modifier clicks keep the link.
+          if (!inTool || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0)
+            return
+          event.preventDefault()
+          postToHost({type: 'sanity-preview-bar:studio-home'})
+        }}
       >
         <Flex
           align="center"
           justify="center"
           style={{width: 25, height: 25, borderRadius: 3, overflow: 'hidden'}}
         >
-          {brand.logo && <Logo logo={brand.logo} />}
+          {brand.icon ?? (brand.logo && <Logo logo={brand.logo} />)}
         </Flex>
       </a>
       {showTitle && (
@@ -456,7 +506,8 @@ function Brand({
         </span>
       )}
       {/* The Studio navbar's search button, with its "Search ⌘K" tooltip. */}
-      {search && (
+      {/* In the Visual Editor, search lives in the page picker in the middle of the bar. */}
+      {search && !inTool && (
         <span style={{display: 'flex'}} {...overflowWhileHovered('search-button', setOverflow)}>
           <StudioTooltip content="Search" hotkeys={['Mod', 'K']}>
             <Button
@@ -483,22 +534,85 @@ function useSearchShortcut(open: () => void, enabled: boolean) {
         open()
       }
     }
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin || event.source !== window.parent) return
-      if (isPreviewBarMessage(event.data) && event.data.type === 'sanity-preview-bar:search') open()
+    function onMessage(message: PreviewBarMessage) {
+      if (message.type === 'sanity-preview-bar:search') open()
     }
     window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('message', onMessage)
+    const unsubscribe = host.subscribe(onMessage)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('message', onMessage)
+      unsubscribe()
     }
   }, [open, enabled])
 }
 
-function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}) {
+/** The Visual Editor tool's pane state, sent by the tool (`editor-state`). */
+type ToolEditorState = {open: boolean; available?: boolean}
+
+/**
+ * The Visual Editor tool's pane, as the tool reports it (`editor-state`): open or closed, and
+ * whether the page has a document to edit. Without `available`, the bar's own page lookup decides.
+ */
+function useToolEditor(enabled: boolean, initial?: ToolEditorState) {
+  const [state, setState] = useState<ToolEditorState>(initial ?? {open: false})
+  useEffect(() => {
+    if (!enabled) return
+    function onMessage(message: PreviewBarMessage) {
+      if (message.type === 'sanity-preview-bar:editor-state') {
+        setState({open: message.open, available: message.available})
+      }
+    }
+    const unsubscribe = host.subscribe(onMessage)
+    return () => unsubscribe()
+  }, [enabled])
+  return state
+}
+
+function sameSelection(a: PreviewBarSelection, b: PreviewBarSelection) {
+  return (
+    a.selected === b.selected && [...a.excluded].sort().join() === [...b.excluded].sort().join()
+  )
+}
+
+function Bar({
+  data,
+  options,
+  native,
+  editorState,
+  initialPageDocument,
+}: {
+  data: PreviewBarData
+  options: PreviewBarOptions
+  /** Rendered natively in a running Studio: its `sanity` module (`PreviewBarView`). */
+  native?: unknown
+  /** The tool's pane state at mount, so the bar lays out for it from its first render. */
+  editorState?: ToolEditorState
+  /** The page's document at mount (Visual Editor); later as `page-document` messages. */
+  initialPageDocument?: {id: string; type: string} | null
+}) {
   const path = useHostPath()
   const position = useContext(BarPositionContext)
+  // Framed by the Studio's Visual Editor tool (`?context=tool`): the tool shows the pane and the
+  // viewport; the bar sends it documents to open instead of opening its own pane.
+  const [inTool] = useState(
+    () => native !== undefined || readPreviewBarContext(window.location.search) === 'tool',
+  )
+  const visualEditorTool =
+    !inTool && options.visualEditor
+      ? (typeof options.visualEditor === 'object' && options.visualEditor.tool) || 'visual-editor'
+      : null
+  const toolEditor = useToolEditor(inTool, editorState)
+  // The page's document, from the Visual Editor tool (`page-document`), for the page picker.
+  const [toolPage, setToolPage] = useState<{id: string; type: string} | null>(
+    initialPageDocument ?? null,
+  )
+  useEffect(() => {
+    if (!inTool) return
+    return host.subscribe((message) => {
+      if (message.type === 'sanity-preview-bar:page-document') setToolPage(message.document)
+    })
+  }, [inTool])
+  const toolEditorOpen = toolEditor.open
   // The bar's own width (it narrows beside the document pane). Theme media is [360, 600, …]:
   // button labels from 600px up, icon-only below so the bar fits; the centred grid from 1024px.
   const [barElement, setBarElement] = useState<HTMLElement | null>(null)
@@ -524,15 +638,24 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   }, [setOverflow])
   // The frame stays unclipped until the dialog's exit animation finishes (`onExitComplete`).
   const closeSearch = useCallback(() => setSearchOpen(false), [])
-  useSearchShortcut(openSearch, Boolean(data.search))
+  // ⌘K only opens: while the Studio's search is open, its own ⌘K closes it, and reopening here in
+  // the same keypress would undo that.
+  const searchOpenRef = useRef(searchOpen)
+  searchOpenRef.current = searchOpen
+  const openSearchShortcut = useCallback(() => {
+    if (!searchOpenRef.current) openSearch()
+  }, [openSearch])
+  useSearchShortcut(openSearchShortcut, Boolean(data.search))
   const editorParams = studioPerspectiveParams(perspective, data.releases)
   // Signed-in editors get Visual Editor and the Studio layer; everyone else gets Sign in.
   const {session, refresh: refreshSession} = useStudioSession(data.projectId)
   const [signingIn, setSigningIn] = useState(false)
-  const signedIn = session.status === 'signed-in'
+  // Inside the Studio (the Visual Editor) the editor is signed in and the Studio's context is
+  // there from the first render, so the bar lays out its editor controls at once.
+  const signedIn = native !== undefined || session.status === 'signed-in'
   // Signed-in editors search with the Studio's own popover once the Studio layer is ready;
   // everyone else keeps the bar's search.
-  const [studioReady, setStudioReady] = useState(false)
+  const [studioReady, setStudioReady] = useState(native !== undefined)
   // The editor's Studio client, for the share menu's "Share this preview" switch.
   const [studioSharing, setStudioSharing] = useState<StudioSharingClient | null>(null)
   const studioSearch = signedIn && studioReady && Boolean(data.search)
@@ -541,7 +664,13 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   // The page's document (from the Studio's Presentation route map), for the document pane.
   const [pageDocument, setPageDocument] = useState<{_id: string; _type: string} | null>(null)
   useEffect(() => {
-    if (!options.documentPane || !signedIn || !studioReady || !data.pageDocuments || path === null)
+    if (
+      !(options.documentPane || inTool) ||
+      !signedIn ||
+      !studioReady ||
+      !data.pageDocuments ||
+      path === null
+    )
       return
     let cancelled = false
     fetch(`${data.basePath}/document?${new URLSearchParams({path})}`)
@@ -555,10 +684,34 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     return () => {
       cancelled = true
     }
-  }, [options.documentPane, signedIn, studioReady, data.pageDocuments, data.basePath, path])
+  }, [options.documentPane, inTool, signedIn, studioReady, data.pageDocuments, data.basePath, path])
+
+  // In the tool the Studio's perspective follows the bar's, and the bar follows the Studio's
+  // (the pane's chips, the navbar's menu); equal selections are dropped, so neither echoes.
+  const perspectiveRef = useRef({perspective, releases: data.releases, switchPerspective})
+  perspectiveRef.current = {perspective, releases: data.releases, switchPerspective}
+  useEffect(() => {
+    if (!inTool) return
+    postToHost({
+      type: 'sanity-preview-bar:perspective',
+      selection: selectionOf(perspective, data.releases),
+    })
+  }, [inTool, perspective, data.releases])
+  useEffect(() => {
+    if (!inTool) return
+    function onMessage(message: PreviewBarMessage) {
+      if (message.type !== 'sanity-preview-bar:set-perspective') return
+      const current = perspectiveRef.current
+      if (sameSelection(message.selection, selectionOf(current.perspective, current.releases)))
+        return
+      current.switchPerspective(message.selection)
+    }
+    const unsubscribe = host.subscribe(onMessage)
+    return () => unsubscribe()
+  }, [inTool])
 
   // The document pane (`pane-state.ts`): it follows the page and survives reloads for this tab.
-  const panelEnabled = Boolean(options.documentPane && options.studioConfig)
+  const panelEnabled = !inTool && Boolean(options.documentPane && options.studioConfig)
   const paneOptions: DocumentPaneOptions =
     typeof options.documentPane === 'object' ? options.documentPane : {}
   const pane = useDocumentPaneState({
@@ -594,6 +747,18 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     parameters?: Record<string, unknown>
   }) {
     setNewDocumentOpen(false)
+    if (inTool) {
+      postToHost({
+        type: 'sanity-preview-bar:open-document',
+        document: {
+          id: crypto.randomUUID(),
+          type: option.schemaType,
+          template: option.templateId,
+          templateParameters: option.parameters,
+        },
+      })
+      return
+    }
     if (!panelEnabled) {
       const params = `template=${encodeURIComponent(option.templateId)};type=${encodeURIComponent(option.schemaType)}`
       window.open(`${data.studioPath}/intent/create/${params}`, '_blank', 'noopener')
@@ -611,8 +776,33 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   function openPanel() {
     // The button unmounts under the pointer, with no mouseleave to release its tooltip overflow.
     setOverflow('edit-button', false)
+    if (inTool) {
+      // The tool knows the page's document when it says one is available.
+      if (toolEditor.available !== undefined) {
+        postToHost({type: 'sanity-preview-bar:open-editor'})
+        return
+      }
+      if (!pageDocument) return
+      postToHost({
+        type: 'sanity-preview-bar:open-document',
+        document: {id: publishedId(pageDocument._id), type: pageDocument._type},
+      })
+      return
+    }
     pane.openPane()
   }
+  // The primary Edit button: the tool's pane, the site's pane, or a link to the tool.
+  const editAction: 'tool-pane' | 'site-pane' | 'tool-link' | null = !signedIn
+    ? null
+    : inTool
+      ? (toolEditor.available ?? Boolean(pageDocument)) && !toolEditorOpen
+        ? 'tool-pane'
+        : null
+      : visualEditorTool
+        ? 'tool-link'
+        : panelEnabled && pane.canOpen && !pane.open
+          ? 'site-pane'
+          : null
 
   function closeStudioSearch() {
     setSearchOpen(false)
@@ -627,6 +817,14 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     closeStudioSearch()
     if (href) {
       postToHost({type: 'sanity-preview-bar:navigate', href})
+      return
+    }
+    if (inTool) {
+      // No page for it: edit it in the tool's pane instead.
+      postToHost({
+        type: 'sanity-preview-bar:open-document',
+        document: {id: publishedId(item._id), type: item._type},
+      })
       return
     }
     // No page in this perspective (e.g. a draft-only or archived product): open it in the Studio.
@@ -677,9 +875,17 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         borderTop={position === 'bottom'}
         borderBottom={position === 'top'}
         ref={setBarElement}
-        // The switcher centres on wide bars; with the document pane open it sits after the brand.
+        // The switcher centres on wide bars; with a document pane open (on the site or in the
+        // Visual Editor) it sits after the brand.
         className={
-          barWidth >= 1024 && !pane.open ? 'preview-bar-card preview-bar-wide' : 'preview-bar-card'
+          (
+            inTool
+              ? // The Visual Editor keeps its context (switcher, page) centred whenever it fits.
+                barWidth >= 760
+              : barWidth >= 1024 && !pane.open
+          )
+            ? 'preview-bar-card preview-bar-wide'
+            : 'preview-bar-card'
         }
         // Beside the open pane the bar narrows to the page's width, on the pane's other side.
         style={
@@ -694,6 +900,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         <div className="preview-bar-layout">
           <div className="preview-bar-start">
             <Brand
+              inTool={inTool}
               showTitle={showLabels}
               onSearch={openSearch}
               newDocument={
@@ -705,16 +912,43 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
             />
           </div>
           <div className="preview-bar-center">
-            <PerspectiveMenu
-              releases={data.releases}
-              releasesError={data.releasesError}
-              perspective={perspective}
-              onOpenChange={(open) => setOverflow('perspective', open)}
-              onSelect={switchPerspective}
-            />
+            {/* The Visual Editor's middle is the context, as in Shopify's theme editor: which
+                version (perspective) and which page. */}
+            <div style={{display: 'flex', alignItems: 'center', gap: 4, minWidth: 0}}>
+              <PerspectiveMenu
+                releases={data.releases}
+                releasesError={data.releasesError}
+                perspective={perspective}
+                onOpenChange={(open) => setOverflow('perspective', open)}
+                onSelect={switchPerspective}
+              />
+              {inTool && data.search && (
+                <PagePicker
+                  preview={
+                    native !== undefined && toolPage ? (
+                      <NativePagePreview
+                        sanity={native}
+                        document={toolPage}
+                        fallback={pageFallbackTitle(path)}
+                      />
+                    ) : null
+                  }
+                  path={path}
+                  onOpen={openSearch}
+                  onHoverChange={(hovered) => setOverflow('page-picker', hovered)}
+                />
+              )}
+            </div>
           </div>
           {/* Shopify's preview bar: copy link, the "…" menu, then the primary pill. */}
           <div className="preview-bar-end">
+            {inTool && (
+              <ViewportButton
+                onChange={(mode) => postToHost({type: 'sanity-preview-bar:viewport', mode})}
+                onOpenChange={(open) => setOverflow('viewport-menu', open)}
+                onHoverChange={(hovered) => setOverflow('viewport', hovered)}
+              />
+            )}
             <InspectorButton onHoverChange={(hovered) => setOverflow('inspector', hovered)} />
             {data.links && (
               <ShareMenu
@@ -722,23 +956,63 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
                 path={path ?? '/'}
                 perspectiveKey={serializePerspective(perspective)}
                 studio={signedIn ? studioSharing : null}
+                toolPath={
+                  // Inside the tool, its own path; on the site, the tool `Edit` opens.
+                  native !== undefined
+                    ? window.location.pathname
+                    : `${data.studioPath.replace(/\/$/, '')}/${visualEditorTool ?? 'visual-editor'}`
+                }
                 setOverflow={setOverflow}
               />
             )}
-            <MoreMenu setOverflow={setOverflow} />
-            {/* Hidden while the pane is open: the pane's own × closes it. */}
-            {panelEnabled && signedIn && pane.canOpen && !pane.open && (
-              <span style={{display: 'flex'}} {...overflowWhileHovered('edit-button', setOverflow)}>
-                <StudioTooltip content="Edit this page" hotkeys={['E']}>
-                  {/* The bar's primary pill (white), in place of Visual Editor. */}
+            {inTool ? (
+              // In the Visual Editor: back to this page on the site, where its own bar (Hide bar,
+              // Exit preview) takes over. A link, so a modifier click opens a new tab.
+              <span style={{display: 'flex'}} {...overflowWhileHovered('exit-tool', setOverflow)}>
+                <StudioTooltip content="Exit Visual Editor">
                   <Button
-                    mode="default"
+                    as="a"
+                    mode="bleed"
                     padding={2}
-                    icon={EditIcon}
-                    text={showLabels ? 'Edit' : undefined}
-                    aria-label="Edit this page"
-                    onClick={openPanel}
+                    icon={LeaveIcon}
+                    aria-label="Exit Visual Editor"
+                    href={path ?? '/'}
+                    target="_top"
                   />
+                </StudioTooltip>
+              </span>
+            ) : (
+              <MoreMenu setOverflow={setOverflow} />
+            )}
+            {/* Hidden while a pane is open: the pane's own × closes it. */}
+            {editAction && (
+              <span style={{display: 'flex'}} {...overflowWhileHovered('edit-button', setOverflow)}>
+                <StudioTooltip
+                  content="Edit this page"
+                  hotkeys={editAction === 'site-pane' ? ['E'] : undefined}
+                >
+                  {/* The bar's primary pill (white), in place of Visual Editor. */}
+                  {editAction === 'tool-link' ? (
+                    <Button
+                      as="a"
+                      mode="default"
+                      padding={2}
+                      icon={EditIcon}
+                      text={showLabels ? 'Edit' : undefined}
+                      aria-label="Edit this page"
+                      href={`${data.studioPath}/${visualEditorTool}?${editorParams}`}
+                      target="_top"
+                    />
+                  ) : (
+                    <Button
+                      mode="default"
+                      padding={2}
+                      icon={EditIcon}
+                      text={showLabels ? 'Edit' : undefined}
+                      aria-label="Edit this page"
+                      onClick={openPanel}
+                    />
+                  )}
                 </StudioTooltip>
               </span>
             )}
@@ -750,7 +1024,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
                 disabled={signingIn}
                 onClick={signIn}
               />
-            ) : panelEnabled ? null : (
+            ) : panelEnabled || inTool || visualEditorTool ? null : (
               <Button
                 as="a"
                 mode="default"
@@ -767,10 +1041,11 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
       </Card>
       {/* Zero-size, so nothing the Studio renders in place (its loading block) moves the bar; the
           pane and popovers are fixed or portaled. */}
-      {signedIn && options.studioConfig && (
+      {signedIn && (options.studioConfig || native !== undefined) && (
         <div style={{position: 'absolute', width: 0, height: 0}}>
           <StudioLayer
             load={options.studioConfig}
+            native={native}
             studioPath={data.studioPath}
             perspective={studioPerspective}
             onPerspectiveChange={switchPerspective}
@@ -861,6 +1136,49 @@ function App({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         <BarPositionContext.Provider value={position}>
           <style>{CARD_CSS}</style>
           <Bar data={data} options={options} />
+        </BarPositionContext.Provider>
+      </BarDataContext.Provider>
+    </ThemeProvider>
+  )
+}
+
+/**
+ * The bar rendered natively inside a running Studio, for the Visual Editor tool
+ * (`sanity-preview-bar/studio`): no frame, the Studio's own context (pass its `sanity` module), and
+ * the tool as the host. Always at the top, in tool mode.
+ */
+export function PreviewBarView({
+  data,
+  host: toolHost,
+  sanity,
+  options = {},
+  editorState,
+  pageDocument,
+}: {
+  data: PreviewBarData
+  host: BarHost
+  sanity: unknown
+  options?: PreviewBarOptions
+  /** The tool's pane state at mount; later changes come as `editor-state` messages. */
+  editorState?: ToolEditorState
+  /** The page's document at mount; later changes come as `page-document` messages. */
+  pageDocument?: {id: string; type: string} | null
+}) {
+  // One bar per document: the tool's host for this one.
+  host = toolHost
+  const scheme = useStudioScheme()
+  return (
+    <ThemeProvider theme={theme} scheme={scheme}>
+      <BarDataContext.Provider value={data}>
+        <BarPositionContext.Provider value="top">
+          <style>{CARD_CSS}</style>
+          <Bar
+            data={data}
+            options={options}
+            native={sanity}
+            editorState={editorState}
+            initialPageDocument={pageDocument}
+          />
         </BarPositionContext.Provider>
       </BarDataContext.Provider>
     </ThemeProvider>

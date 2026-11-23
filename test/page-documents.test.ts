@@ -47,3 +47,46 @@ describe('findPageDocumentRule', () => {
     expect(findPageDocumentRule(rules, '/a/b/c')).toBeNull()
   })
 })
+
+describe('findPageDocumentRule with every DocumentResolver form', () => {
+  test('a type rule finds the document of that type', () => {
+    expect(findPageDocumentRule([{route: '/cart', type: 'cart'}], '/cart')).toEqual({
+      filter: '_type == $type',
+      params: {type: 'cart'},
+    })
+  })
+
+  test('filter and params functions get the origin, route params and path', () => {
+    const rule = {
+      route: '/blog/:category/:slug',
+      filter: ({params}: {params: Record<string, string>}) => `slug == "${params.slug}"`,
+      params: ({origin, path}: {origin: string; path: string}) => ({origin, path}),
+    }
+    expect(findPageDocumentRule([rule], '/blog/tech/hello?x=1', 'https://a.test')).toEqual({
+      filter: 'slug == "hello"',
+      params: {
+        category: 'tech',
+        slug: 'hello',
+        origin: 'https://a.test',
+        path: '/blog/tech/hello',
+      },
+    })
+  })
+
+  test('a resolve rule that returns nothing falls through to the next rule', () => {
+    const rules = [
+      {route: '/products/:id', resolve: () => undefined},
+      {
+        route: '/products/:id',
+        resolve: ({params}: {params: Record<string, string>}) => ({
+          filter: '_id == $id',
+          params: {id: `product-${params.id}`},
+        }),
+      },
+    ]
+    expect(findPageDocumentRule(rules, '/products/7')).toEqual({
+      filter: '_id == $id',
+      params: {id: 'product-7'},
+    })
+  })
+})

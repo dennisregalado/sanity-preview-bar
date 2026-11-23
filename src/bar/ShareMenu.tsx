@@ -4,9 +4,9 @@
  * layout, copy and sizes; the link is the bar's own short `/p/<code>` link (minted by
  * `/preview-bar/share`, stored in KV, 2 days) instead of Presentation's URL with the secret in it.
  *
- * The switch is Presentation's own setting (`enablePreviewAccessSharing` /
- * `disablePreviewAccessSharing` from `@sanity/preview-url-secret`), so it stays in step with
- * Presentation: links are minted only while it's on. Toggling needs the editor's Studio client, so
+ * The switch is Sanity's preview sharing setting (`enablePreviewAccessSharing` /
+ * `disablePreviewAccessSharing` from `@sanity/preview-url-secret`, as Presentation toggles it):
+ * links are minted only while it's on. Toggling needs the editor's Studio client, so
  * it works for signed-in editors (the Studio layer reports the client); everyone else sees it
  * read-only.
  */
@@ -31,7 +31,7 @@ const QRCodeSVG = lazy(() => import('qrcode.react').then((module) => ({default: 
 /** A transparent pixel: `qrcode.react` clears the logo's square only when given an image. */
 const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
 
-/** The share endpoint refused because Presentation's sharing is off. */
+/** The share endpoint refused because preview sharing is off. */
 class SharingOffError extends Error {}
 
 /** Asks the server for a short `/p/<code>` link to `path` in the current perspective. */
@@ -96,25 +96,33 @@ function PreviewQrCode({url}: {url: string}) {
   )
 }
 
+/** The sharing secret's `source`: the tool that toggled it. */
+const SHARING_SOURCE = 'sanity-preview-bar/visual-editor'
+
 export function ShareMenu({
   sharing: initialSharing,
   path,
   perspectiveKey,
   studio,
+  toolPath,
   setOverflow,
 }: {
-  /** Presentation's "Share this preview" was on when the bar loaded. */
+  /** "Share this preview" was on when the bar loaded. */
   sharing: boolean
   path: string
   /** The current perspective; a new one needs a new link. */
   perspectiveKey: string
   /** Signed-in editors' Studio client, for the switch; `null` makes it read-only. */
   studio: StudioSharingClient | null
+  /** The Visual Editor tool's path in the Studio, recorded as the sharing's Studio URL. */
+  toolPath: string
   setOverflow: (key: string, visible: boolean) => void
 }) {
-  const {basePath, studioPath} = useBarData()
+  const {basePath} = useBarData()
   const place = useBarPlacement()
   const [sharing, setSharing] = useState(initialSharing)
+  // In the Visual Editor the sharing state arrives after the bar mounts.
+  useEffect(() => setSharing(initialSharing), [initialSharing])
   const [open, setOpen] = useState(false)
   const [toggling, setToggling] = useState<'enabling' | 'disabling' | null>(null)
   const [minting, setMinting] = useState(false)
@@ -165,12 +173,14 @@ export function ShareMenu({
     try {
       const {enablePreviewAccessSharing, disablePreviewAccessSharing} =
         await import('@sanity/preview-url-secret/toggle-preview-access-sharing')
-      const studioUrl = `${window.location.origin}${studioPath}/presentation`
+      // Sanity's preview sharing secret, as Presentation's share menu sets it, but recorded as the
+      // Visual Editor's (its source and Studio URL; the secret itself is the same singleton).
+      const studioUrl = `${window.location.origin}${toolPath}`
       const client = studio.client as Parameters<typeof enablePreviewAccessSharing>[0]
       if (enable) {
-        await enablePreviewAccessSharing(client, 'sanity/presentation', studioUrl, studio.userId)
+        await enablePreviewAccessSharing(client, SHARING_SOURCE, studioUrl, studio.userId)
       } else {
-        await disablePreviewAccessSharing(client, 'sanity/presentation', studioUrl, studio.userId)
+        await disablePreviewAccessSharing(client, SHARING_SOURCE, studioUrl, studio.userId)
         setLink(null)
       }
       setSharing(enable)

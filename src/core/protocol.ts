@@ -4,6 +4,7 @@
  * imports React or Sanity UI. Both sides post to, and accept from, this origin and their
  * counterpart window only.
  */
+import {MAX_EDIT_PATH_LENGTH} from './sanity-node'
 
 /** Default route for the framed bar; its endpoints live under it (`/preview-bar/search`, …). */
 export const PREVIEW_BAR_ROUTE = '/preview-bar'
@@ -122,27 +123,15 @@ export type PreviewBarMessage =
    * or closed. The host clips the frame to that column plus the bar and reflows the page beside it.
    */
   | {type: 'sanity-preview-bar:panel'; open: boolean; width: number; side: PaneSide}
-
-/*
- * Planned, not implemented: click-to-edit (re-sketched for hub-backed preview).
- *
- * The bar's tab has no stega, because stega needs Sanity's content source maps and the realtime preview hub evaluates GROQ itself (no source
- * maps; a stega client bypasses the hub). So elements are annotated explicitly instead:
- *
- * 1. Storefront: components put Sanity's own `data-sanity` attribute on editable elements, built
- *    with `createDataAttribute({id, type, path})` from the `_id`, `_type` and `_key` already in the
- *    query results (the hub returns them like Sanity does). Section-level first
- *    (`sections[_key=="abc"]`), field-level where it matters (`sections[_key=="abc"].title`).
- *    Presentation's overlays read the same attribute, so it helps there too.
- * 2. Host, while the pane is open: hovering an element with `data-sanity` outlines it (an overlay in
- *    the page, pointer-events none); clicking it posts the message below instead of following a
- *    link (Alt/Option-click follows it). The attribute is `key=value;…`, parsed without
- *    dependencies.
- *      Host → bar: {type: 'sanity-preview-bar:edit'; id: string; type: string; path: string}
- * 3. Bar: the page's document gets the pane param `path` (an array item path opens that item's
- *    editor; a field path focuses the field); another document (a referenced product) opens in the
- *    pane's stack with that `path`.
- */
+  /**
+   * Host or framed site → bar or Visual Editor tool: an element marked with `data-sanity` was
+   * clicked (click-to-edit, `sanity-preview-bar/host`'s overlay). Open `id` in the document pane
+   * at `path`, which is in Sanity's URL form as written in the attribute (`sections:k1.heading`);
+   * `toPanePath` turns it into the pane's `path` param. The page's own document opens at the path
+   * (an array item opens its editor, a field gets focus); any other document goes on the pane's
+   * stack.
+   */
+  | {type: 'sanity-preview-bar:edit'; id: string; documentType: string; path: string}
 
 export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
   if (typeof data !== 'object' || data === null || !('type' in data)) return false
@@ -201,6 +190,16 @@ export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
     case 'sanity-preview-bar:perspective':
     case 'sanity-preview-bar:set-perspective':
       return 'selection' in data && isSelection(data.selection)
+    case 'sanity-preview-bar:edit':
+      return (
+        'id' in data &&
+        isNonEmptyString(data.id) &&
+        'documentType' in data &&
+        isNonEmptyString(data.documentType) &&
+        'path' in data &&
+        isNonEmptyString(data.path) &&
+        data.path.length <= MAX_EDIT_PATH_LENGTH
+      )
     default:
       return false
   }
@@ -228,6 +227,10 @@ function isSelection(value: unknown): value is PreviewBarSelection {
     Array.isArray(selection.excluded) &&
     selection.excluded.every((id) => typeof id === 'string')
   )
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
 }
 
 /** Same-site paths only: the bar builds links from them and the host navigates to them. */

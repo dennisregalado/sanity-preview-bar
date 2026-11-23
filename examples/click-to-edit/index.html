@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Click to edit</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font:
+          15px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          system-ui,
+          sans-serif;
+        color: #1b1d27;
+        background: #f6f6f8;
+      }
+      body {
+        margin: 0;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        padding: 14px 24px;
+        background: rgb(255 255 255 / 0.92);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid #e3e4e8;
+      }
+      header strong {
+        font-size: 17px;
+      }
+      header nav {
+        display: flex;
+        gap: 16px;
+      }
+      main {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 32px 24px 240px;
+      }
+      section {
+        margin: 0 0 32px;
+        padding: 28px;
+        background: #fff;
+        border-radius: 8px;
+        border: 1px solid #e3e4e8;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 40px;
+        line-height: 1.1;
+      }
+      h2 {
+        margin: 0 0 16px;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        display: block;
+        padding: 16px;
+        border-radius: 6px;
+        background: #f1f2f5;
+        color: inherit;
+        text-decoration: none;
+      }
+      .card:hover {
+        background: #e7e9ee;
+      }
+      .card span {
+        display: block;
+        color: #6b6e7c;
+        font-size: 13px;
+      }
+      .tall {
+        height: 900px;
+        display: grid;
+        place-items: center;
+        color: #6b6e7c;
+      }
+      aside {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        z-index: 20;
+        width: min(380px, calc(100vw - 32px));
+        padding: 14px 16px;
+        border-radius: 8px;
+        background: #13141b;
+        color: #e8e9ee;
+        font-size: 13px;
+        box-shadow: 0 8px 30px rgb(0 0 0 / 0.25);
+      }
+      aside h3 {
+        margin: 0 0 6px;
+        font-size: 13px;
+      }
+      aside ul {
+        margin: 0 0 10px;
+        padding-left: 18px;
+      }
+      aside label {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin: 4px 0;
+      }
+      kbd {
+        padding: 0 4px;
+        border-radius: 3px;
+        background: #2c2e3a;
+        font: inherit;
+      }
+      #log {
+        max-height: 180px;
+        margin: 8px 0 0;
+        padding: 8px;
+        overflow: auto;
+        border-radius: 4px;
+        background: #000;
+        font:
+          12px/1.45 ui-monospace,
+          Menlo,
+          monospace;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- A sticky header: its outlines stay put while the page scrolls under it. -->
+    <header data-sanity="id=settings;type=siteSettings;path=header">
+      <strong data-sanity="id=settings;type=siteSettings;path=title">Lawson-Fenning</strong>
+      <nav>
+        <a href="#shop" data-sanity="id=settings;type=siteSettings;path=menu:m1.label">Shop</a>
+        <a href="#makers" data-sanity="id=settings;type=siteSettings;path=menu:m2.label">Makers</a>
+      </nav>
+    </header>
+
+    <main>
+      <!-- Nested targets: the section, then its fields. -->
+      <section data-sanity="id=page-home;type=page;path=sections:hero">
+        <h1 id="hero-heading" data-sanity="id=page-home;type=page;path=sections:hero.heading">
+          Furniture made in Los Angeles
+        </h1>
+        <p data-sanity="id=page-home;type=page;path=sections:hero.body">
+          Hover a heading, a card or the header. Click one: the page doesn’t follow the link, and
+          the edit message shows in the log.
+        </p>
+      </section>
+
+      <section id="shop" data-sanity="id=page-home;type=page;path=sections:featured">
+        <h2 data-sanity="id=page-home;type=page;path=sections:featured.heading">Featured</h2>
+        <div class="cards">
+          <!-- A link inside a target, and targets inside the link (a referenced document). -->
+          <a
+            class="card"
+            href="#followed-1"
+            data-sanity="id=page-home;type=page;path=sections:featured.products:p1"
+          >
+            <strong data-sanity="id=product-1;type=product;path=title">Ojai Lounge Chair</strong>
+            <span data-sanity="id=product-1;type=product;path=maker">Lawson-Fenning</span>
+          </a>
+          <a
+            class="card"
+            href="#followed-2"
+            data-sanity="id=page-home;type=page;path=sections:featured.products:p2"
+          >
+            <strong data-sanity="id=product-2;type=product;path=title">Mesa Coffee Table</strong>
+            <span data-sanity="id=product-2;type=product;path=images:0">Image 1 of 4</span>
+          </a>
+          <a class="card" href="#followed-3">
+            <strong>Not editable</strong>
+            <span>No data-sanity: the link works</span>
+          </a>
+        </div>
+      </section>
+
+      <section id="makers" data-sanity="id=page-home;type=page;path=sections:makers">
+        <h2 data-sanity="id=page-home;type=page;path=sections:makers.heading">Makers</h2>
+        <div class="tall" data-sanity="id=page-home;type=page;path=sections:makers.body">
+          A tall block: scroll with the pointer still and the outline follows what’s under it.
+        </div>
+      </section>
+    </main>
+
+    <aside>
+      <h3>Click to edit</h3>
+      <ul>
+        <li>Click an outlined element: the edit message is logged, links aren’t followed.</li>
+        <li>Hold <kbd>Alt</kbd>/<kbd>⌥</kbd>: no outline, clicks reach the page.</li>
+        <li><kbd>⌘\</kbd> / <kbd>Ctrl+\</kbd> turns it off and on. <kbd>Esc</kbd> clears it.</li>
+      </ul>
+      <label><input id="active" type="checkbox" checked /> Document pane open (site)</label>
+      <label><input id="rerender" type="checkbox" /> Re-render the hero heading every 300 ms</label>
+      <pre id="log"></pre>
+    </aside>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

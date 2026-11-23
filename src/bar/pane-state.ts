@@ -5,6 +5,7 @@
  */
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {PREVIEW_PANEL_MIN_PAGE_WIDTH} from '../core/protocol'
+import {studioPathToString, toPanePath, toStudioPath} from '../core/sanity-node'
 import type {PanelEntry} from './DocumentPanel'
 
 /** Default width: Presentation-like. */
@@ -73,6 +74,81 @@ export function publishedId(id: string) {
   return id.replace(/^drafts\./, '').replace(/^versions\.[^.]+\./, '')
 }
 
+/** A click-to-edit request (`sanity-preview-bar:edit`): a document and a URL-form path. */
+export type EditRequest = {id: string; documentType: string; path: string}
+
+/**
+ * The pane's stack after a click-to-edit request. The page's document (`pageId`) opens at the
+ * path with nothing above it, keeping its other params; another document at the top is moved to
+ * the path; anything else goes on top, so × goes back to the page's. Returns `null` for a path
+ * that doesn't parse.
+ */
+export function editStack(
+  stack: PanelEntry[],
+  request: EditRequest,
+  pageId: string | null,
+): PanelEntry[] | null {
+  const path = toPanePath(request.path)
+  if (!path) return null
+  const id = publishedId(request.id)
+  const at = (entry: PanelEntry | undefined): PanelEntry =>
+    entry?.id === id
+      ? {...entry, params: {...entry.params, path}}
+      : {id, type: request.documentType, params: {path}}
+  if (id === pageId) return [at(stack[0])]
+  const top = stack[stack.length - 1]
+  if (top?.id === id) return [...stack.slice(0, -1), at(top)]
+  return [...stack, at(undefined)]
+}
+
+/**
+ * A field no schema has: the stepping stone for a top-level field, since no path at all leaves
+ * Sanity's open path (and so its focus) where it was.
+ */
+const REFOCUS_FIELD = '_previewBarRefocus'
+
+/** Long enough for the pane to commit and run its focus effect between two paths. */
+const REFOCUS_DELAY_MS = 50
+
+/**
+ * Applies a click-to-edit request to a pane stack held in state.
+ *
+ * A pane that mounts for the request focuses its `path` param on its own. One that stays mounted
+ * focuses only when `path` changes, and Sanity skips a focus path it believes it already has: the
+ * editor may have moved on in the form, or closed an array item's dialog (which keeps its focus
+ * path), or its open path still matches after a blur. So the path steps through its parent for
+ * one render first, which also reopens an item's dialog; a top-level field steps through a field
+ * no schema has. Checked against `sanity@6.23`'s `useDocumentForm` and `DocumentPaneProvider`.
+ */
+export function applyEdit(
+  current: PanelEntry[],
+  request: EditRequest,
+  pageId: string | null,
+  setStack: (update: (stack: PanelEntry[]) => PanelEntry[]) => void,
+) {
+  const next = editStack(current, request, pageId)
+  if (!next) return
+  const top = next[next.length - 1]!
+  const shown = current[current.length - 1]
+  // The pane is keyed by depth and id (`DocumentPanel`).
+  const remounts = !shown || shown.id !== top.id || current.length !== next.length
+  if (remounts) {
+    setStack(() => next)
+    return
+  }
+  const parent = toStudioPath(request.path)!.slice(0, -1)
+  const via = studioPathToString(parent.length ? parent : [REFOCUS_FIELD])
+  setStack(() =>
+    next.map((entry, index) =>
+      index === next.length - 1 ? {...entry, params: {...entry.params, path: via}} : entry,
+    ),
+  )
+  setTimeout(
+    () => setStack((stack) => editStack(stack, request, pageId) ?? stack),
+    REFOCUS_DELAY_MS,
+  )
+}
+
 export function useDocumentPaneState({
   enabled,
   pageDocument,
@@ -125,6 +201,18 @@ export function useDocumentPaneState({
     setStack((current) => (current.length ? [...current, entry] : [entry]))
   }, [])
 
+  /** Click-to-edit: a document and path from the page. */
+  const stackRef = useRef(stack)
+  stackRef.current = stack
+  const pageId = pageEntry?.id ?? null
+  const edit = useCallback(
+    (request: EditRequest) => {
+      store('sessionStorage', OPEN_KEY, '1')
+      applyEdit(stackRef.current, request, pageId, setStack)
+    },
+    [pageId],
+  )
+
   const toggle = useCallback(() => {
     if (open) change([])
     else openPane()
@@ -149,6 +237,7 @@ export function useDocumentPaneState({
     canOpen: Boolean(pageEntry),
     openPane,
     openDocument,
+    edit,
     toggle,
     change,
     resize: beside ? {start: resizeStart, to: resizeTo, end: resizeEnd} : null,

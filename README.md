@@ -461,6 +461,33 @@ out of normal draft-mode tabs and the Visual Editor's frame: its overlays re-par
 change and can loop ("Maximum update depth exceeded"), which starves client-side navigation, the
 bar's included.
 
+### Click to edit
+
+Mark editable elements with Sanity's own attribute, in preview mode only:
+
+```html
+<h2 data-sanity="id=page-home;type=page;path=sections:k1.heading">…</h2>
+```
+
+`id` is the published id; `path` is Sanity's URL path form (`.` between fields, `field:key` for a
+keyed array item, `field:3` for an index). `createDataAttribute` from `@sanity/visual-editing`
+writes the same thing; so does a hand-written helper. `base=` and `workspace=` are ignored, and an
+attribute without a path isn't a target.
+
+Hovering a marked element outlines it and labels its field (with the editable elements above it as
+a breadcrumb); clicking it opens that document in the document pane at the path. The page's own
+document opens there (an array item opens its editor, a field gets focus); any other document
+opens above it in the pane, and × goes back. On the site this is on while the document pane is
+open; in the Visual Editor tool's frame it's always on.
+
+- <kbd>⌘\</kbd> / <kbd>Ctrl+\</kbd> turns it off and on (remembered for the tab).
+- Hold <kbd>Alt</kbd> / <kbd>⌥</kbd> to hide the outline and let clicks through to the page.
+- <kbd>Esc</kbd> clears the outline until the pointer moves.
+
+Pass `clickToEdit: false` to `mountPreviewBarHost` or `mountPreviewBarFrame` to turn it off.
+`mountClickToEdit` (from `sanity-preview-bar/host`) runs the engine on its own; `npm run example`
+serves a demo page.
+
 ## How it works
 
 - **The frame:** the host pins a full-viewport iframe to the bottom of a bar-height wrapper in the top
@@ -470,6 +497,10 @@ bar's included.
   (the pane's full-height column, left or right, plus the narrowed bar); clipped-out areas take no pointer events.
 - **Messages:** the host and bar talk through `postMessage` on the site's own origin only
   (`sanity-preview-bar:*`).
+- **Click to edit:** no registry and no observers. One passive `pointermove` listener, coalesced
+  to an animation frame, hit-tests with `closest('[data-sanity]')`; the outline is one fixed,
+  shadow-rooted layer positioned from `getBoundingClientRect`, so it stays on sticky content.
+  Clicks are intercepted in the capture phase and sent as `sanity-preview-bar:edit`.
 - **Perspective:** stored in Sanity's own `sanity-preview-perspective` cookie, the one Presentation
   uses, so the two stay in step.
 - **Studio fidelity:** release ordering, stacks, tones, search scoring and many sizes are copied from

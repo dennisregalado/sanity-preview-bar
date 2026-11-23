@@ -5,9 +5,9 @@ Shopify theme preview, made of the Studio's own parts.
 
 - **Perspective switcher:** the Studio's global perspective menu (published, drafts, content releases
   with their stacks and tones), switching instantly with no reload.
-- **Short preview links:** "Copy preview link" makes a `/p/<code>` link that opens the page in the
-  current perspective for 2 days, while Presentation's "Share this preview" is on. No secret in the
-  URL.
+- **Share preview:** Presentation's share menu: the "Share this preview" switch, a QR code to open
+  the preview on a phone, and "Copy preview link". The link is a short `/p/<code>` link that opens
+  the page in the current perspective for 2 days, with no secret in the URL.
 - **Link search (⌘K):** the Studio's search over the pages you configure, with its virtualized list,
   previews and status dots. Picking a result navigates the site.
 - **Workspace menu:** the Studio's own: the title and chevron open the project name, the workspace
@@ -211,6 +211,10 @@ export const load = previewBar.openLink
 
 The host is a few KB with no dependencies, and loads only in preview.
 
+The bar sits at the bottom by default. Pass `position: 'top'` to `mountPreviewBarHost` to put it at
+the top: the page gets `padding-top` instead, and the bar's menus and tooltips open downward. Fixed
+or sticky headers at `top: 0` don't move, so they sit under the bar.
+
 ### 5. Studio layer (optional)
 
 ```ts
@@ -231,8 +235,8 @@ On the bar page, pass a loader for your Studio config as the third argument:
 **Document pane:** add `documentPane: true` to the same options:
 `mountPreviewBar(target, data, {studioConfig, documentPane: true})`. Signed-in editors get an
 **Edit** button (in place of Visual Editor) whenever the page has a document (from
-`pageDocuments`). It slides in the Studio's document pane in a column on the right, top to bottom
-of the viewport, and the bar narrows to sit left of it. The button hides while the pane is open; the
+`pageDocuments`). It opens the Studio's document pane in a column on the left (or right), top to
+bottom of the viewport, and the bar narrows to sit beside it. The button hides while the pane is open; the
 pane's own × closes it, and `E` (when you're not typing, on the page or in the bar) toggles it. On
 viewports too narrow to keep 360px beside the pane, the pane overlays the page above a full-width
 bar.
@@ -241,9 +245,11 @@ bar.
 mountPreviewBar(target, data, {
   studioConfig,
   // Optional settings instead of `true`:
-  documentPane: {allFieldsGroup: false},
+  documentPane: {allFieldsGroup: false, side: 'right'},
 })
 ```
+
+- `side`: `'left'` (default) or `'right'`.
 
 - `allFieldsGroup: false` hides field groups' **All fields** tab in the pane only (Sanity's
   `ALL_FIELDS_GROUP` with `hidden: true`, added to the bar's copy of your config). As in the Studio,
@@ -259,13 +265,14 @@ mountPreviewBar(target, data, {
   page.
 - The pane follows the page: navigating the site opens the new page's document. It stays open
   across reloads for the tab (`sessionStorage`), and through pages without a document.
-- Drag its left edge (or focus it and use the arrow keys) to resize it, from 320px up to leaving
+- Drag its inner edge (or focus it and use the arrow keys) to resize it, from 320px up to leaving
   360px of page; the width is remembered (`localStorage`).
 - Studio links inside it: an edit intent opens that document in the pane; links to other tools open
   the Studio in a new tab.
 - The bar follows the Studio's own appearance setting (light, dark or system), like the pane.
+- The pane's own Published / Draft / release chips switch the site too, like the bar's menu.
 - The host clips the frame to the bar plus the pane's column (`clip-path`), so the rest of the page
-  stays clickable, and adds `padding-right` to `<html>` so the page reflows. Fixed-position
+  stays clickable, and pads `<html>` on the pane's side so the page reflows. Fixed-position
   elements on your site don't reflow; dialogs and popovers that reach past the pane unclip the frame
   while they're open.
 - Anything that streams the form's value (a document-level `form.components.input`, like
@@ -276,8 +283,10 @@ mountPreviewBar(target, data, {
 - Create a KV namespace and bind it (`wrangler.jsonc` → `kv_namespaces`), or pass any store with
   `get` and `put(key, value, ttlSeconds)`.
 - Add `Disallow: /p/` to `robots.txt`.
-- Links are minted only while an editor has **Share this preview** on in Presentation; while it's off
-  the button opens Presentation instead.
+- Links are minted only while **Share this preview** is on. The switch in the bar's share menu is
+  Presentation's own setting (signed-in editors can toggle it there; others see it read-only), and
+  turning it off in either place stops new links. Links already handed out keep working until they
+  expire.
 
 ## Next.js (App Router)
 
@@ -373,7 +382,7 @@ bar's included.
   layer (a manual popover) that clips it. When a menu, tooltip or dialog opens, the bar asks the host
   to stop clipping, and to clip again 250ms after the last one closes so exit animations play.
 - **Document pane:** the frame's wrapper grows to the viewport and a `clip-path` cuts it to an L
-  (the pane's full-height column plus the narrowed bar); clipped-out areas take no pointer events.
+  (the pane's full-height column, left or right, plus the narrowed bar); clipped-out areas take no pointer events.
 - **Messages:** the host and bar talk through `postMessage` on the site's own origin only
   (`sanity-preview-bar:*`).
 - **Perspective:** stored in Sanity's own `sanity-preview-perspective` cookie, the one Presentation

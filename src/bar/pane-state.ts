@@ -1,7 +1,7 @@
 /**
  * The document pane's state in the bar: which documents it shows, its width (resizable and
  * remembered), whether it's open (remembered for the tab, so it survives reloads and follows the
- * editor across pages), and when the host may stop reserving its column (after the exit motion).
+ * editor across pages).
  */
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {PREVIEW_PANEL_MIN_PAGE_WIDTH} from '../core/protocol'
@@ -85,16 +85,6 @@ export function useDocumentPaneState({
 
   const [stack, setStack] = useState<PanelEntry[]>([])
   const open = enabled && stack.length > 0
-  // Open, or still playing its exit motion: the host keeps the column until `onExitComplete`.
-  const [exiting, setExiting] = useState(false)
-  const [wasOpen, setWasOpen] = useState(open)
-  if (wasOpen !== open) {
-    // Derived during render, so the host never sees a frame of "closed" before the exit motion.
-    setWasOpen(open)
-    setExiting(!open)
-  }
-  // Signed out, the Studio layer (and its exit motion) is gone: release the column at once.
-  const visible = open || (exiting && enabled)
 
   const pageEntry = useMemo<PanelEntry | null>(
     () =>
@@ -130,8 +120,6 @@ export function useDocumentPaneState({
     else openPane()
   }, [open, change, openPane])
 
-  const onExitComplete = useCallback(() => setExiting(false), [])
-
   // Resizing: live while dragging (the host reflows the page as it goes), remembered on release.
   const latest = useRef(width)
   latest.current = width
@@ -146,14 +134,12 @@ export function useDocumentPaneState({
   return {
     stack,
     open,
-    visible,
     width,
     beside,
     canOpen: Boolean(pageEntry),
     openPane,
     toggle,
     change,
-    onExitComplete,
     resize: beside ? {start: resizeStart, to: resizeTo, end: resizeEnd} : null,
   }
 }

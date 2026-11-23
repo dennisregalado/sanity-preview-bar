@@ -6,6 +6,7 @@
 import {Box, Flex, Hotkeys, Text} from '@sanity/ui'
 import {Tooltip} from '@sanity/ui/tooltip'
 import type {JSX} from 'react'
+import {useBarPlacement} from './context'
 
 /** `GLOBAL_SEARCH_KEY_MODIFIER`: "Mod" reads as Cmd on Apple platforms and Ctrl elsewhere. */
 const MOD_KEY =
@@ -24,6 +25,7 @@ export function StudioTooltip({
   disabled?: boolean
   children: JSX.Element
 }) {
+  const place = useBarPlacement()
   return (
     <Tooltip
       portal
@@ -32,8 +34,8 @@ export function StudioTooltip({
       boundaryElement={null}
       delay={{open: 400}}
       disabled={disabled}
-      placement="top"
-      fallbackPlacements={['top-start', 'top-end', 'bottom-start', 'bottom-end']}
+      placement={place('top')}
+      fallbackPlacements={[place('top-start'), place('top-end'), 'bottom-start', 'bottom-end']}
       padding={1}
       content={
         <Flex align="center">

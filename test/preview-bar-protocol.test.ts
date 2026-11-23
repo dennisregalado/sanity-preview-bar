@@ -34,18 +34,20 @@ describe('isPreviewBarMessage', () => {
   })
 
   test('accepts the panel message with a non-negative width only', () => {
-    expect(isPreviewBarMessage({type: 'sanity-preview-bar:panel', open: true, width: 420})).toBe(
-      true,
-    )
-    expect(isPreviewBarMessage({type: 'sanity-preview-bar:panel', open: false, width: 0})).toBe(
-      true,
-    )
+    expect(
+      isPreviewBarMessage({type: 'sanity-preview-bar:panel', open: true, width: 420, side: 'left'}),
+    ).toBe(true)
+    expect(
+      isPreviewBarMessage({type: 'sanity-preview-bar:panel', open: false, width: 0, side: 'right'}),
+    ).toBe(true)
     for (const data of [
       {type: 'sanity-preview-bar:panel', open: true},
-      {type: 'sanity-preview-bar:panel', open: 'yes', width: 420},
-      {type: 'sanity-preview-bar:panel', open: true, width: -1},
-      {type: 'sanity-preview-bar:panel', open: true, width: Number.NaN},
-      {type: 'sanity-preview-bar:panel', open: true, width: '420'},
+      {type: 'sanity-preview-bar:panel', open: true, width: 420},
+      {type: 'sanity-preview-bar:panel', open: true, width: 420, side: 'top'},
+      {type: 'sanity-preview-bar:panel', open: 'yes', width: 420, side: 'left'},
+      {type: 'sanity-preview-bar:panel', open: true, width: -1, side: 'left'},
+      {type: 'sanity-preview-bar:panel', open: true, width: Number.NaN, side: 'left'},
+      {type: 'sanity-preview-bar:panel', open: true, width: '420', side: 'left'},
     ]) {
       expect(isPreviewBarMessage(data)).toBe(false)
     }

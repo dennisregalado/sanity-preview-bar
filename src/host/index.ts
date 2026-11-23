@@ -4,21 +4,24 @@
  * `refresh` (rerun the page's data in place) and `navigate` (client-side navigation).
  *
  * Same layout as Shopify's theme preview bar: the frame is always a full viewport tall and pinned to
- * the bottom of a bar-height wrapper that clips it. Opening a menu only stops the clipping, so the
+ * the bar's edge (bottom by default, or top) of a bar-height wrapper that clips it. Opening a menu only stops the clipping, so the
  * frame's viewport never changes and its popovers position once, with no relayout. The wrapper is a
  * manual popover, so it sits in the top layer above every stacking context.
  *
  * With the document pane open the wrapper grows to the full viewport and a `clip-path` cuts it to
- * an L: the pane's full-height column on the right plus the bar, which narrows to sit left of it. Clipped-out areas take no
- * pointer events, so the rest of the page stays clickable, and the page gets `padding-right` so its
- * content reflows beside the pane.
+ * an L: the pane's full-height column (on the left or right) plus the bar, which narrows to sit
+ * beside it. Clipped-out areas take no pointer events, so the rest of the page stays clickable,
+ * and the page gets padding on the pane's side so its content reflows beside the pane.
  */
 import {
   isPreviewBarMessage,
   PREVIEW_BAR_HEIGHT,
   PREVIEW_BAR_ROUTE,
+  PREVIEW_BAR_POSITION_PARAM,
   PREVIEW_PANEL_MIN_PAGE_WIDTH,
+  type PaneSide,
   type PreviewBarMessage,
+  type PreviewBarPosition,
 } from '../core/protocol'
 
 export type PreviewBarHostOptions = {
@@ -30,6 +33,12 @@ export type PreviewBarHostOptions = {
   navigate: (href: string) => unknown
   /** The current path and query. Default `location.pathname + location.search`. */
   path?: string
+  /**
+   * Which edge the bar sits on. Default `'bottom'`, which never covers the site's own header.
+   * With `'top'` the page gets `padding-top`; fixed or sticky headers at `top: 0` don't move and
+   * sit under the bar.
+   */
+  position?: PreviewBarPosition
 }
 
 export type PreviewBarHost = {
@@ -57,17 +66,46 @@ function currentPath() {
   return window.location.pathname + window.location.search
 }
 
-/** The bar's height including the bottom safe area, as a CSS length. */
-const BAR_HEIGHT = `(${PREVIEW_BAR_HEIGHT}px + env(safe-area-inset-bottom, 0px))`
+/** The bar's height including the safe area on its edge, as a CSS length. */
+function barHeight(position: PreviewBarPosition) {
+  return `(${PREVIEW_BAR_HEIGHT}px + env(safe-area-inset-${position}, 0px))`
+}
+
+/**
+ * The frame's clip while the pane is open: the union of the pane's full-height column (`side`) and
+ * the bar's full-width strip (`position`), as a polygon in the wrapper's coordinates.
+ */
+export function panelClipPath(
+  side: PaneSide,
+  position: PreviewBarPosition,
+  width: number,
+  barHeightCss: string,
+) {
+  const inner = side === 'right' ? `calc(100% - ${width}px)` : `${width}px`
+  const strip = position === 'bottom' ? `calc(100% - ${barHeightCss})` : `calc${barHeightCss}`
+  const points =
+    position === 'bottom'
+      ? side === 'right'
+        ? [`0 ${strip}`, `${inner} ${strip}`, `${inner} 0`, '100% 0', '100% 100%', '0 100%']
+        : ['0 0', `${inner} 0`, `${inner} ${strip}`, `100% ${strip}`, '100% 100%', '0 100%']
+      : side === 'right'
+        ? ['0 0', '100% 0', '100% 100%', `${inner} 100%`, `${inner} ${strip}`, `0 ${strip}`]
+        : ['0 0', '100% 0', `100% ${strip}`, `${inner} ${strip}`, `${inner} 100%`, '0 100%']
+  return `polygon(${points.join(', ')})`
+}
 
 export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarHost {
   const basePath = options.basePath ?? PREVIEW_BAR_ROUTE
+  const position: PreviewBarPosition = options.position === 'top' ? 'top' : 'bottom'
+  const BAR_HEIGHT = barHeight(position)
   let path = options.path ?? currentPath()
   let destroyed = false
   /** An overlay (menu, tooltip, dialog) is open: the whole frame shows and takes clicks. */
   let overlayOpen = false
   /** The document pane's width, or 0 while it's closed. */
   let panelWidth = 0
+  /** Which edge the pane sits on. */
+  let panelSide: 'left' | 'right' = 'left'
 
   const wrapper = document.createElement('div')
   wrapper.setAttribute('popover', 'manual')
@@ -76,7 +114,7 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
   // browsers without the Popover API, where the wrapper is not in the top layer.
   Object.assign(wrapper.style, {
     position: 'fixed',
-    inset: 'auto 0 0 0',
+    inset: position === 'top' ? '0 0 auto 0' : 'auto 0 0 0',
     zIndex: '2147483000',
     boxSizing: 'border-box',
     width: '100%',
@@ -89,7 +127,7 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
   } satisfies Partial<CSSStyleDeclaration>)
 
   const iframe = document.createElement('iframe')
-  iframe.src = basePath
+  iframe.src = position === 'top' ? `${basePath}?${PREVIEW_BAR_POSITION_PARAM}=top` : basePath
   iframe.title = 'Sanity preview bar'
   iframe.allow = 'clipboard-write'
   iframe.setAttribute(
@@ -98,7 +136,7 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
   )
   Object.assign(iframe.style, {
     position: 'absolute',
-    bottom: 'env(safe-area-inset-bottom, 0px)',
+    [position]: `env(safe-area-inset-${position}, 0px)`,
     left: '0',
     display: 'block',
     width: '100%',
@@ -111,9 +149,9 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
   document.body.appendChild(wrapper)
   if ('showPopover' in wrapper) wrapper.showPopover()
 
-  // Reserve room so the bar never covers the footer.
+  // Reserve room so the bar never covers the footer (or, at the top, the start of the page).
   const root = document.documentElement
-  root.style.setProperty('padding-bottom', `${PREVIEW_BAR_HEIGHT}px`)
+  root.style.setProperty(`padding-${position}`, `${PREVIEW_BAR_HEIGHT}px`)
 
   /** Clipping for the current overlay and pane state. */
   function layout() {
@@ -121,20 +159,11 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
     wrapper.style.height = panel ? '100dvh' : `calc${BAR_HEIGHT}`
     wrapper.style.overflow = overlayOpen ? 'visible' : 'hidden'
     wrapper.style.clipPath =
-      panel && !overlayOpen
-        ? `polygon(${[
-            `0 calc(100% - ${BAR_HEIGHT})`,
-            `calc(100% - ${panelWidth}px) calc(100% - ${BAR_HEIGHT})`,
-            `calc(100% - ${panelWidth}px) 0`,
-            '100% 0',
-            '100% 100%',
-            '0 100%',
-          ].join(', ')})`
-        : ''
+      panel && !overlayOpen ? panelClipPath(panelSide, position, panelWidth, BAR_HEIGHT) : ''
+    root.style.removeProperty('padding-left')
+    root.style.removeProperty('padding-right')
     if (panel && window.innerWidth - panelWidth >= PREVIEW_PANEL_MIN_PAGE_WIDTH) {
-      root.style.setProperty('padding-right', `${panelWidth}px`)
-    } else {
-      root.style.removeProperty('padding-right')
+      root.style.setProperty(`padding-${panelSide}`, `${panelWidth}px`)
     }
   }
 
@@ -164,6 +193,7 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
         break
       case 'sanity-preview-bar:panel':
         panelWidth = event.data.open ? Math.min(event.data.width, window.innerWidth) : 0
+        panelSide = event.data.side
         layout()
         break
       case 'sanity-preview-bar:navigate':
@@ -206,7 +236,8 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
     window.removeEventListener('message', onMessage)
     window.removeEventListener('keydown', onKeyDown)
     window.removeEventListener('resize', onResize)
-    root.style.removeProperty('padding-bottom')
+    root.style.removeProperty(`padding-${position}`)
+    root.style.removeProperty('padding-left')
     root.style.removeProperty('padding-right')
     wrapper.remove()
   }

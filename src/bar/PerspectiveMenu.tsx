@@ -12,7 +12,7 @@ import EyeOpenIcon from '@sanity/icons/EyeOpen'
 import SearchIcon from '@sanity/icons/Search'
 import {Box, Button, Card, Flex, Label, Text, TextInput} from '@sanity/ui'
 import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
-import {useMemo, useRef, useState, type CSSProperties, type MouseEvent} from 'react'
+import {useCallback, useMemo, useRef, useState, type CSSProperties, type MouseEvent} from 'react'
 import {
   BoltSmallIcon,
   CircleSmallIcon,
@@ -35,7 +35,7 @@ import {
   type ReleaseDocument,
   type ReleaseType,
 } from '../core/perspective'
-import {useBarData} from './context'
+import {useBarData, useBarPlacement} from './context'
 
 const GROUP_LABELS: Record<ReleaseType, string> = {
   asap: 'ASAP',
@@ -59,10 +59,69 @@ export type PerspectiveMenuProps = {
   releasesError: boolean
   perspective: PreviewPerspective
   onOpenChange: (open: boolean) => void
-  /** Shows a stack in the bar: the optimistic one on click, then the server's, or the old one on failure. */
+  /** Switches to a selection (`usePerspectiveSwitch`). */
+  onSelect: (next: PerspectiveSelection) => void
+}
+
+/** A menu selection: the chosen layer and the layers hidden with the eye toggle. */
+export type PerspectiveSelection = {selected: string; excluded: string[]}
+
+/**
+ * Switching perspective, for the menu and for the document pane's Published / Draft chips.
+ * Optimistic: the bar shows the new stack (chip, dots, stack lines, tone) at once, built with the
+ * same `perspectiveStack` the endpoint uses. The cookie is stored in the background, then the host
+ * reruns the page's queries in place. Switches save one after another, so the cookie always ends
+ * on the last one; only the latest refreshes, and a failed one puts the bar back.
+ */
+export function usePerspectiveSwitch({
+  basePath,
+  releases,
+  perspective,
+  onChange,
+  onRefresh,
+}: {
+  basePath: string
+  releases: ReleaseDocument[]
+  perspective: PreviewPerspective
+  /** Shows a stack in the bar: the optimistic one, then the server's, or the old one on failure. */
   onChange: (perspective: PreviewPerspective) => void
   /** Reruns the storefront's queries once the server has stored the latest switch. */
   onRefresh: () => Promise<void>
+}) {
+  const saves = useRef<Promise<void>>(Promise.resolve())
+  const latest = useRef(0)
+  const current = useRef({perspective, releases, onChange, onRefresh})
+  current.current = {perspective, releases, onChange, onRefresh}
+
+  return useCallback(
+    (next: PerspectiveSelection) => {
+      const {perspective: previous, releases: list, onChange: show} = current.current
+      const request = ++latest.current
+      show(perspectiveStack({selected: next.selected, releases: list, excluded: next.excluded}))
+
+      saves.current = saves.current.then(async () => {
+        try {
+          const response = await fetch(`${basePath}/perspective`, {
+            method: 'POST',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify(next),
+          })
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          const {perspective: stored} = (await response.json()) as {
+            perspective: PreviewPerspective
+          }
+          if (request !== latest.current) return
+          // The server builds the stack from fresh release data; it wins if a release changed.
+          current.current.onChange(stored)
+          await current.current.onRefresh()
+        } catch (err) {
+          console.error('Preview bar: could not change perspective', err)
+          if (request === latest.current) current.current.onChange(previous)
+        }
+      })
+    },
+    [basePath],
+  )
 }
 
 /** "Monday at 2:00 AM" within a week, "Dec 1 at 2:00 AM" (plus year if not this year) after. */
@@ -156,14 +215,11 @@ export function PerspectiveMenu({
   releasesError,
   perspective,
   onOpenChange,
-  onChange,
-  onRefresh,
+  onSelect,
 }: PerspectiveMenuProps) {
   const {basePath, studioPath} = useBarData()
+  const place = useBarPlacement()
   const [filter, setFilter] = useState('')
-  // Switches save one after another, so the cookie always ends on the last click.
-  const saves = useRef<Promise<void>>(Promise.resolve())
-  const latest = useRef(0)
   const {selected, excluded} = useMemo(
     () => selectionOf(perspective, releases),
     [perspective, releases],
@@ -211,37 +267,8 @@ export function PerspectiveMenu({
     return position === 'first' || position === 'within'
   }
 
-  /**
-   * Optimistic: the bar shows the new stack (chip, dots, stack lines, tone) at once, built with the
-   * same `perspectiveStack` the endpoint uses. The cookie is stored in the background, then the host
-   * reruns the page's queries in place. Only the latest switch refreshes; a failed one puts the bar
-   * back.
-   */
-  function apply(next: {selected: string; excluded: string[]}) {
-    const previous = perspective
-    const request = ++latest.current
-    onChange(perspectiveStack({selected: next.selected, releases, excluded: next.excluded}))
-
-    saves.current = saves.current.then(async () => {
-      try {
-        const response = await fetch(`${basePath}/perspective`, {
-          method: 'POST',
-          headers: {'content-type': 'application/json'},
-          body: JSON.stringify(next),
-        })
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const {perspective: stored} = (await response.json()) as {
-          perspective: PreviewPerspective
-        }
-        if (request !== latest.current) return
-        // The server builds the stack from fresh release data; it wins if a release changed.
-        onChange(stored)
-        await onRefresh()
-      } catch (err) {
-        console.error('Preview bar: could not change perspective', err)
-        if (request === latest.current) onChange(previous)
-      }
-    })
+  function apply(next: PerspectiveSelection) {
+    onSelect(next)
   }
 
   function toggleExcluded(event: MouseEvent, id: string) {
@@ -366,8 +393,8 @@ export function PerspectiveMenu({
         }}
         popover={{
           animate: true,
-          placement: 'top-start',
-          fallbackPlacements: ['top-end'],
+          placement: place('top-start'),
+          fallbackPlacements: [place('top-end')],
           portal: true,
           constrainSize: true,
           tone: 'default',

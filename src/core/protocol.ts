@@ -17,6 +17,22 @@ export const PREVIEW_BAR_HEIGHT = 50
  */
 export const PREVIEW_PANEL_MIN_PAGE_WIDTH = 360
 
+/** Which edge of the viewport the document pane sits on. */
+export type PaneSide = 'left' | 'right'
+
+/** Which edge of the viewport the bar sits on. */
+export type PreviewBarPosition = 'top' | 'bottom'
+
+/**
+ * The host tells the framed bar its position in the frame's URL (`/preview-bar?position=top`), so
+ * the bar renders in place from its first frame.
+ */
+export const PREVIEW_BAR_POSITION_PARAM = 'position'
+
+export function readPreviewBarPosition(search: string): PreviewBarPosition {
+  return new URLSearchParams(search).get(PREVIEW_BAR_POSITION_PARAM) === 'top' ? 'top' : 'bottom'
+}
+
 export type PreviewBarMessage =
   /** Bar → host, once mounted: asks for the current storefront path. */
   | {type: 'sanity-preview-bar:ready'}
@@ -37,10 +53,10 @@ export type PreviewBarMessage =
   /** Bar → host: a search result was chosen; navigate the storefront there (client-side). */
   | {type: 'sanity-preview-bar:navigate'; href: string}
   /**
-   * Bar → host: the document pane opened (`width` CSS pixels at the right, above the bar) or
-   * closed. The host clips the frame to the bar plus that column and reflows the page beside it.
+   * Bar → host: the document pane opened (a full-height column `width` CSS pixels wide on `side`)
+   * or closed. The host clips the frame to that column plus the bar and reflows the page beside it.
    */
-  | {type: 'sanity-preview-bar:panel'; open: boolean; width: number}
+  | {type: 'sanity-preview-bar:panel'; open: boolean; width: number; side: PaneSide}
 
 /*
  * Planned, not implemented: click-to-edit (re-sketched for hub-backed preview).
@@ -85,7 +101,9 @@ export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
         'width' in data &&
         typeof data.width === 'number' &&
         Number.isFinite(data.width) &&
-        data.width >= 0
+        data.width >= 0 &&
+        'side' in data &&
+        (data.side === 'left' || data.side === 'right')
       )
     case 'sanity-preview-bar:path':
       // Root-relative only: the bar builds its Studio links from it.

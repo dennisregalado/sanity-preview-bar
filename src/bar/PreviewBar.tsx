@@ -1,34 +1,41 @@
 // Loaded only by the bar's route, inside the host's iframe. The stylesheet and styled-components'
 // <style> tags land in the iframe's document, never in the site's.
 import '@sanity/ui/styles.css'
-import CheckmarkCircleIcon from '@sanity/icons/CheckmarkCircle'
 import EditIcon from '@sanity/icons/Edit'
-import ErrorOutlineIcon from '@sanity/icons/ErrorOutline'
 import EllipsisHorizontalIcon from '@sanity/icons/EllipsisHorizontal'
 import EyeClosedIcon from '@sanity/icons/EyeClosed'
 import LeaveIcon from '@sanity/icons/Leave'
-import LinkIcon from '@sanity/icons/Link'
 import SearchIcon from '@sanity/icons/Search'
 import {Button, Card, Flex, Text, ThemeProvider, usePrefersDark} from '@sanity/ui'
 import {Menu, MenuButton} from '@sanity/ui/menu'
-import {Popover} from '@sanity/ui/popover'
 import {buildTheme} from '@sanity/ui/theme'
-import {StrictMode, useCallback, useEffect, useRef, useState, type CSSProperties} from 'react'
+import {StrictMode, useCallback, useContext, useEffect, useRef, useState} from 'react'
 import {AnimatePresence} from 'motion/react'
 import {createRoot} from 'react-dom/client'
 import type {PreviewBarData} from '../core/data'
-import {parsePerspective, perspectiveTone, type PreviewPerspective} from '../core/perspective'
-import {isPreviewBarMessage, type PreviewBarMessage} from '../core/protocol'
-import {BarDataContext, useBarData} from './context'
+import {
+  parsePerspective,
+  perspectiveTone,
+  serializePerspective,
+  type PreviewPerspective,
+} from '../core/perspective'
+import {
+  isPreviewBarMessage,
+  type PaneSide,
+  type PreviewBarMessage,
+  readPreviewBarPosition,
+} from '../core/protocol'
+import {BarDataContext, BarPositionContext, useBarData, useBarPlacement} from './context'
 import {injectStudioDocumentCss, keepStyledComponentsLast} from './document-css'
 import {Logo} from './logo'
-import {PerspectiveMenu, studioPerspectiveParams} from './PerspectiveMenu'
+import {PerspectiveMenu, studioPerspectiveParams, usePerspectiveSwitch} from './PerspectiveMenu'
 import {SearchDialog} from './SearchDialog'
 import {StudioMenuItem} from './StudioMenuItem'
 import {StudioTooltip} from './StudioTooltip'
 import {WorkspaceMenu} from './WorkspaceMenu'
 import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
 import {useDocumentPaneState} from './pane-state'
+import {ShareMenu, type StudioSharingClient} from './ShareMenu'
 import {type StudioConfigLoader, StudioLayer} from './StudioLayer'
 
 export type {StudioConfigLoader}
@@ -56,6 +63,8 @@ export type DocumentPaneOptions = {
    * with `hidden: true`, added to the bar's copy of your config only). Default `true`.
    */
   allFieldsGroup?: boolean
+  /** Which side of the page the pane opens on. Default `'left'`. */
+  side?: PaneSide
 }
 
 export type {PreviewBarData}
@@ -94,7 +103,9 @@ const CARD_CSS = `
 /* The document pane's resizer: a 6px strip on its left edge; a 2px focus-colour line while it's
    hovered, dragged or focused, like the Studio's pane resizer. */
 .preview-bar-pane-resizer { position: absolute; top: 0; bottom: 0; left: 0; width: 6px; cursor: ew-resize; touch-action: none; outline: none; z-index: 1000; }
+.preview-bar-pane-resizer[data-side="left"] { left: auto; right: 0; }
 .preview-bar-pane-resizer::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: transparent; transition: background-color 0.1s; }
+.preview-bar-pane-resizer[data-side="left"]::after { left: auto; right: 0; }
 .preview-bar-pane-resizer:hover::after, .preview-bar-pane-resizer[data-active]::after, .preview-bar-pane-resizer:focus-visible::after { background: var(--card-focus-ring-color, #556bfc); }
 @keyframes preview-bar-spin { to { transform: rotate(360deg); } }
 .preview-bar-spinner { animation: preview-bar-spin 0.6s linear infinite; }
@@ -221,18 +232,18 @@ const OVERLAYS = '[data-ui="Dialog"], [data-ui="Popover"], [data-ui="Tooltip"]'
  * or tooltips can reach past the pane's left edge; while any of them does, the host must stop
  * clipping the frame to the pane, as it does for the bar's menus.
  */
-function usePaneOverlays(open: boolean, width: number, setOverflow: SetOverflow) {
+function usePaneOverlays(open: boolean, width: number, side: PaneSide, setOverflow: SetOverflow) {
   useEffect(() => {
     if (!open) return
     let frame = 0
     function check() {
       frame = 0
-      const left = window.innerWidth - width
       const outside = [...document.querySelectorAll<HTMLElement>(OVERLAYS)].some((element) => {
         if (element.closest('[data-preview-bar-panel]')) return false
         if (element.dataset.ui === 'Dialog') return true
         const rect = element.getBoundingClientRect()
-        return rect.width > 0 && rect.left < left - 1
+        if (rect.width === 0) return false
+        return side === 'right' ? rect.left < window.innerWidth - width - 1 : rect.right > width + 1
       })
       setOverflow('pane-overlay', outside)
     }
@@ -250,7 +261,7 @@ function usePaneOverlays(open: boolean, width: number, setOverflow: SetOverflow)
       cancelAnimationFrame(frame)
       setOverflow('pane-overlay', false)
     }
-  }, [open, width, setOverflow])
+  }, [open, width, side, setOverflow])
 }
 
 function isEditable(target: EventTarget | null) {
@@ -302,191 +313,10 @@ function useElementWidth(element: HTMLElement | null) {
   return width
 }
 
-/** The share endpoint refused because Presentation's sharing was turned off after the bar loaded. */
-class SharingOffError extends Error {}
-
-/** Asks the server for a short `/p/<code>` link to `path` in the current perspective. */
-async function requestShareLink(basePath: string, path: string) {
-  const response = await fetch(`${basePath}/share`, {
-    method: 'POST',
-    headers: {'content-type': 'application/json'},
-    body: JSON.stringify({pathname: path}),
-  })
-  if (response.status === 409) throw new SharingOffError()
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  const {url} = (await response.json()) as {url: string; expiresAt: string}
-  return url
-}
-
-/**
- * Copies text that is still being fetched. A `ClipboardItem` holding a promise keeps the click's
- * user activation, which Safari otherwise loses across the request; then the Clipboard API (as
- * Presentation does), then the selection fallback for browsers that refuse both. Rejects with the
- * fetch's error when the text never arrives.
- */
-async function copyText(text: Promise<string>) {
-  if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
-    try {
-      const blob = text.then((value) => new Blob([value], {type: 'text/plain'}))
-      await navigator.clipboard.write([new ClipboardItem({'text/plain': blob})])
-      return true
-    } catch {
-      // Fall through; `await text` below rethrows a failed fetch.
-    }
-  }
-  const value = await text
-  try {
-    await navigator.clipboard.writeText(value)
-    return true
-  } catch {
-    const field = document.createElement('textarea')
-    field.value = value
-    field.setAttribute('readonly', '')
-    field.style.cssText = 'position:fixed;opacity:0;pointer-events:none'
-    document.body.appendChild(field)
-    field.select()
-    const copied = document.execCommand('copy')
-    field.remove()
-    return copied
-  }
-}
-
-/** How long Shopify-style "Link copied" confirmation stays up. */
-const CONFIRMATION_MS = 3000
-
-/**
- * Shopify's "Share preview": copies a short `/p/<code>` link that opens this page in the current
- * perspective for 2 days. The server mints it (`/preview-bar/share`) only while Presentation's
- * "Share this preview" is on; while sharing is off the button opens Presentation, where an editor
- * can turn it on.
- */
-function CopyPreviewLink({
-  sharing: initialSharing,
-  path,
-  setOverflow,
-}: {
-  sharing: boolean
-  path: string
-  setOverflow: SetOverflow
-}) {
-  const {basePath, studioPath} = useBarData()
-  const [sharing, setSharing] = useState(initialSharing)
-  const [status, setStatus] = useState<'idle' | 'copying' | 'copied' | 'failed'>('idle')
-  const timer = useRef<number | undefined>(undefined)
-  const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null)
-  const label =
-    status === 'failed'
-      ? 'Couldn’t copy preview link'
-      : sharing
-        ? 'Copy preview link'
-        : 'Turn on preview sharing in Presentation'
-
-  // The confirmation floats above the bar, so the host must stop clipping the frame meanwhile.
-  useEffect(() => {
-    if (status !== 'copied' && status !== 'failed') return
-    setOverflow('copy-confirmation', true)
-    return () => setOverflow('copy-confirmation', false)
-  }, [status, setOverflow])
-
-  useEffect(() => () => window.clearTimeout(timer.current), [])
-
-  function openPresentation() {
-    window.open(`${studioPath}/presentation?${new URLSearchParams({preview: path})}`, '_blank')
-  }
-
-  function settle(next: 'copied' | 'failed') {
-    setStatus(next)
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(
-      () => setStatus('idle'),
-      next === 'copied' ? CONFIRMATION_MS : 2000,
-    )
-  }
-
-  async function handleClick() {
-    if (!sharing) {
-      openPresentation()
-      return
-    }
-    if (status === 'copying') return
-    setStatus('copying')
-    const link = requestShareLink(basePath, path)
-    // `copyText` may not await `link` on every path; keep a rejection from going unhandled.
-    link.catch(() => {})
-    try {
-      settle((await copyText(link)) ? 'copied' : 'failed')
-    } catch (err) {
-      if (err instanceof SharingOffError) {
-        setSharing(false)
-        setStatus('idle')
-        openPresentation()
-        return
-      }
-      console.error('Preview bar: could not create a preview link', err)
-      settle('failed')
-    }
-  }
-
-  // Success and failure both show above the button; a tooltip alone was easy to miss.
-  const failed = status === 'failed'
-  const confirmation = (
-    <Flex align="center" gap={2} padding={3}>
-      {/* Sanity UI's `Text` colours `[data-sanity-icon]` with `--card-icon-color`. */}
-      <Text
-        size={1}
-        style={
-          {
-            '--card-icon-color': failed
-              ? 'var(--card-badge-critical-icon-color)'
-              : 'var(--card-badge-positive-icon-color)',
-          } as CSSProperties
-        }
-      >
-        {failed ? <ErrorOutlineIcon /> : <CheckmarkCircleIcon />}
-      </Text>
-      <Text size={1}>
-        {failed ? 'Couldn’t create a preview link. Try again.' : 'Link copied. Expires in 2 days.'}
-      </Text>
-    </Flex>
-  )
-
-  return (
-    <span
-      ref={setAnchor}
-      style={{display: 'flex'}}
-      {...overflowWhileHovered('copy-link', setOverflow)}
-    >
-      {/* The confirmation replaces the tooltip while it shows. */}
-      <StudioTooltip content={label} disabled={status === 'copied' || failed}>
-        <Button
-          mode="bleed"
-          padding={2}
-          icon={LinkIcon}
-          aria-label={label}
-          aria-busy={status === 'copying'}
-          onClick={() => void handleClick()}
-        />
-      </StudioTooltip>
-      {/* Anchored by element: `StudioTooltip` doesn't forward the ref Popover would set. */}
-      <Popover
-        referenceElement={anchor}
-        content={confirmation}
-        open={status === 'copied' || failed}
-        portal
-        animate
-        placement="top"
-        fallbackPlacements={['top-end', 'top-start']}
-        tone="default"
-        zOffset={3000}
-        role="status"
-      />
-    </span>
-  )
-}
-
 /** Shopify's "…" menu: hide the bar (until the next page load) or leave preview on this page. */
 function MoreMenu({setOverflow}: {setOverflow: SetOverflow}) {
   const {basePath} = useBarData()
+  const place = useBarPlacement()
   const [exiting, setExiting] = useState(false)
   const [open, setOpen] = useState(false)
 
@@ -522,8 +352,8 @@ function MoreMenu({setOverflow}: {setOverflow: SetOverflow}) {
             }}
             popover={{
               animate: true,
-              placement: 'top-end',
-              fallbackPlacements: ['top-start'],
+              placement: place('top-end'),
+              fallbackPlacements: [place('top-start')],
               portal: true,
               tone: 'default',
               zOffset: 3000,
@@ -639,6 +469,7 @@ function useSearchShortcut(open: () => void, enabled: boolean) {
 
 function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}) {
   const path = useHostPath()
+  const position = useContext(BarPositionContext)
   // The bar's own width (it narrows beside the document pane). Theme media is [360, 600, …]:
   // button labels from 600px up, icon-only below so the bar fits; the centred grid from 1024px.
   const [barElement, setBarElement] = useState<HTMLElement | null>(null)
@@ -649,6 +480,13 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     parsePerspective(data.perspective),
   )
   const refreshHost = useHostRefresh()
+  const switchPerspective = usePerspectiveSwitch({
+    basePath: data.basePath,
+    releases: data.releases,
+    perspective,
+    onChange: setPerspective,
+    onRefresh: refreshHost,
+  })
   const setOverflow = useHostOverflow()
   const [searchOpen, setSearchOpen] = useState(false)
   const openSearch = useCallback(() => {
@@ -666,6 +504,8 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   // Signed-in editors search with the Studio's own popover once the Studio layer is ready;
   // everyone else keeps the bar's search.
   const [studioReady, setStudioReady] = useState(false)
+  // The editor's Studio client, for the share menu's "Share this preview" switch.
+  const [studioSharing, setStudioSharing] = useState<StudioSharingClient | null>(null)
   const studioSearch = signedIn && studioReady && Boolean(data.search)
   const searchTypes = (data.search ?? []).flatMap(({kind}) => (kind === 'route' ? [] : [kind]))
 
@@ -697,15 +537,17 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     pageDocument,
     setOverflow,
   })
-  const barBesidePanel = pane.visible && pane.beside
+  const paneSide: PaneSide = paneOptions.side === 'right' ? 'right' : 'left'
+  const barBesidePanel = pane.open && pane.beside
   useEffect(() => {
     postToHost({
       type: 'sanity-preview-bar:panel',
-      open: pane.visible,
-      width: pane.visible ? pane.width : 0,
+      open: pane.open,
+      width: pane.open ? pane.width : 0,
+      side: paneSide,
     })
-  }, [pane.visible, pane.width])
-  usePaneOverlays(pane.visible, pane.width, setOverflow)
+  }, [pane.open, pane.width, paneSide])
+  usePaneOverlays(pane.open, pane.width, paneSide, setOverflow)
   usePaneShortcut(pane.toggle, panelEnabled && signedIn && (pane.open || pane.canOpen))
   function openPanel() {
     // The button unmounts under the pointer, with no mouseleave to release its tooltip overflow.
@@ -759,7 +601,8 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'flex-end',
-        justifyContent: 'flex-end',
+        // The bar's edge of the frame (the host's `position`).
+        justifyContent: position === 'top' ? 'flex-start' : 'flex-end',
         width: '100%',
         height: '100%',
       }}
@@ -772,14 +615,18 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         // The Studio navbar's `RootCard padding={3}`, so both bars are the same height. Inline
         // padding comes from `.preview-bar-card` (10px, 20px from 1024px).
         padding={3}
-        // Only the top edge: the bar spans the viewport, so side and bottom borders read as a box.
-        borderTop
+        // Only the edge facing the page: the bar spans the viewport, so other borders read as a box.
+        borderTop={position === 'bottom'}
+        borderBottom={position === 'top'}
         ref={setBarElement}
         className={barWidth >= 1024 ? 'preview-bar-card preview-bar-wide' : 'preview-bar-card'}
-        // Beside the open pane the bar narrows to the page's width, left of the pane.
+        // Beside the open pane the bar narrows to the page's width, on the pane's other side.
         style={
           barBesidePanel
-            ? {width: `calc(100% - ${pane.width}px)`, alignSelf: 'flex-start'}
+            ? {
+                width: `calc(100% - ${pane.width}px)`,
+                alignSelf: paneSide === 'right' ? 'flex-start' : 'flex-end',
+              }
             : {width: '100%'}
         }
       >
@@ -793,16 +640,17 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
               releasesError={data.releasesError}
               perspective={perspective}
               onOpenChange={(open) => setOverflow('perspective', open)}
-              onChange={setPerspective}
-              onRefresh={refreshHost}
+              onSelect={switchPerspective}
             />
           </div>
           {/* Shopify's preview bar: copy link, the "…" menu, then the primary pill. */}
           <div className="preview-bar-end">
             {data.links && (
-              <CopyPreviewLink
+              <ShareMenu
                 sharing={data.sharing}
                 path={path ?? '/'}
+                perspectiveKey={serializePerspective(perspective)}
+                studio={signedIn ? studioSharing : null}
                 setOverflow={setOverflow}
               />
             )}
@@ -854,6 +702,8 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
             load={options.studioConfig}
             studioPath={data.studioPath}
             perspective={studioPerspective}
+            onPerspectiveChange={switchPerspective}
+            onSharingClient={setStudioSharing}
             allFieldsGroup={paneOptions.allFieldsGroup !== false}
             panel={
               panelEnabled
@@ -862,8 +712,9 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
                     onChange: pane.change,
                     width: pane.width,
                     fullHeight: pane.beside,
+                    barPosition: position,
+                    side: paneSide,
                     resize: pane.resize,
-                    onExitComplete: pane.onExitComplete,
                   }
                 : undefined
             }
@@ -925,11 +776,15 @@ function useStudioScheme() {
 
 function App({data, options}: {data: PreviewBarData; options: PreviewBarOptions}) {
   const scheme = useStudioScheme()
+  // Set by the host in the frame's URL (`?position=top`); bottom otherwise.
+  const [position] = useState(() => readPreviewBarPosition(window.location.search))
   return (
     <ThemeProvider theme={theme} scheme={scheme}>
       <BarDataContext.Provider value={data}>
-        <style>{CARD_CSS}</style>
-        <Bar data={data} options={options} />
+        <BarPositionContext.Provider value={position}>
+          <style>{CARD_CSS}</style>
+          <Bar data={data} options={options} />
+        </BarPositionContext.Provider>
       </BarDataContext.Provider>
     </ThemeProvider>
   )

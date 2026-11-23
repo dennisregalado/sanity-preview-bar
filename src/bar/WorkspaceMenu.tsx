@@ -9,7 +9,7 @@ import {Box, Button, Flex, Text} from '@sanity/ui'
 import {Menu, MenuButton} from '@sanity/ui/menu'
 import {type CSSProperties, useState} from 'react'
 
-import {useBarData} from './context'
+import {useBarData, useBarPlacement} from './context'
 import {Logo} from './logo'
 import {StudioTooltip} from './StudioTooltip'
 
@@ -28,6 +28,7 @@ export function WorkspaceMenu({
   onHoverChange: (hovered: boolean) => void
 }) {
   const {brand, projectId} = useBarData()
+  const place = useBarPlacement()
   const [open, setOpen] = useState(false)
   const manageUrl = projectId ? `${SANITY_WEBSITE_URL}/manage/project/${projectId}` : null
 
@@ -56,8 +57,8 @@ export function WorkspaceMenu({
             popover={{
               animate: true,
               constrainSize: true,
-              placement: 'top-start',
-              fallbackPlacements: ['top', 'top-end'],
+              placement: place('top-start'),
+              fallbackPlacements: [place('top'), place('top-end')],
               portal: true,
               tone: 'default',
               zOffset: 3000,

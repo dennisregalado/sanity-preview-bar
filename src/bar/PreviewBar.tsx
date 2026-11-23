@@ -18,11 +18,11 @@ import {AnimatePresence} from 'motion/react'
 import {createRoot} from 'react-dom/client'
 import type {PreviewBarData} from '../core/data'
 import {parsePerspective, perspectiveTone, type PreviewPerspective} from '../core/perspective'
-import {isPreviewBarMessage, type PreviewBarMessage} from '../core/protocol'
+import {isPreviewBarMessage, type PaneSide, type PreviewBarMessage} from '../core/protocol'
 import {BarDataContext, useBarData} from './context'
 import {injectStudioDocumentCss, keepStyledComponentsLast} from './document-css'
 import {Logo} from './logo'
-import {PerspectiveMenu, studioPerspectiveParams} from './PerspectiveMenu'
+import {PerspectiveMenu, studioPerspectiveParams, usePerspectiveSwitch} from './PerspectiveMenu'
 import {SearchDialog} from './SearchDialog'
 import {StudioMenuItem} from './StudioMenuItem'
 import {StudioTooltip} from './StudioTooltip'
@@ -56,6 +56,8 @@ export type DocumentPaneOptions = {
    * with `hidden: true`, added to the bar's copy of your config only). Default `true`.
    */
   allFieldsGroup?: boolean
+  /** Which side of the page the pane opens on. Default `'left'`. */
+  side?: PaneSide
 }
 
 export type {PreviewBarData}
@@ -94,7 +96,9 @@ const CARD_CSS = `
 /* The document pane's resizer: a 6px strip on its left edge; a 2px focus-colour line while it's
    hovered, dragged or focused, like the Studio's pane resizer. */
 .preview-bar-pane-resizer { position: absolute; top: 0; bottom: 0; left: 0; width: 6px; cursor: ew-resize; touch-action: none; outline: none; z-index: 1000; }
+.preview-bar-pane-resizer[data-side="left"] { left: auto; right: 0; }
 .preview-bar-pane-resizer::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: transparent; transition: background-color 0.1s; }
+.preview-bar-pane-resizer[data-side="left"]::after { left: auto; right: 0; }
 .preview-bar-pane-resizer:hover::after, .preview-bar-pane-resizer[data-active]::after, .preview-bar-pane-resizer:focus-visible::after { background: var(--card-focus-ring-color, #556bfc); }
 @keyframes preview-bar-spin { to { transform: rotate(360deg); } }
 .preview-bar-spinner { animation: preview-bar-spin 0.6s linear infinite; }
@@ -221,18 +225,18 @@ const OVERLAYS = '[data-ui="Dialog"], [data-ui="Popover"], [data-ui="Tooltip"]'
  * or tooltips can reach past the pane's left edge; while any of them does, the host must stop
  * clipping the frame to the pane, as it does for the bar's menus.
  */
-function usePaneOverlays(open: boolean, width: number, setOverflow: SetOverflow) {
+function usePaneOverlays(open: boolean, width: number, side: PaneSide, setOverflow: SetOverflow) {
   useEffect(() => {
     if (!open) return
     let frame = 0
     function check() {
       frame = 0
-      const left = window.innerWidth - width
       const outside = [...document.querySelectorAll<HTMLElement>(OVERLAYS)].some((element) => {
         if (element.closest('[data-preview-bar-panel]')) return false
         if (element.dataset.ui === 'Dialog') return true
         const rect = element.getBoundingClientRect()
-        return rect.width > 0 && rect.left < left - 1
+        if (rect.width === 0) return false
+        return side === 'right' ? rect.left < window.innerWidth - width - 1 : rect.right > width + 1
       })
       setOverflow('pane-overlay', outside)
     }
@@ -250,7 +254,7 @@ function usePaneOverlays(open: boolean, width: number, setOverflow: SetOverflow)
       cancelAnimationFrame(frame)
       setOverflow('pane-overlay', false)
     }
-  }, [open, width, setOverflow])
+  }, [open, width, side, setOverflow])
 }
 
 function isEditable(target: EventTarget | null) {
@@ -649,6 +653,13 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     parsePerspective(data.perspective),
   )
   const refreshHost = useHostRefresh()
+  const switchPerspective = usePerspectiveSwitch({
+    basePath: data.basePath,
+    releases: data.releases,
+    perspective,
+    onChange: setPerspective,
+    onRefresh: refreshHost,
+  })
   const setOverflow = useHostOverflow()
   const [searchOpen, setSearchOpen] = useState(false)
   const openSearch = useCallback(() => {
@@ -697,15 +708,17 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     pageDocument,
     setOverflow,
   })
-  const barBesidePanel = pane.visible && pane.beside
+  const paneSide: PaneSide = paneOptions.side === 'right' ? 'right' : 'left'
+  const barBesidePanel = pane.open && pane.beside
   useEffect(() => {
     postToHost({
       type: 'sanity-preview-bar:panel',
-      open: pane.visible,
-      width: pane.visible ? pane.width : 0,
+      open: pane.open,
+      width: pane.open ? pane.width : 0,
+      side: paneSide,
     })
-  }, [pane.visible, pane.width])
-  usePaneOverlays(pane.visible, pane.width, setOverflow)
+  }, [pane.open, pane.width, paneSide])
+  usePaneOverlays(pane.open, pane.width, paneSide, setOverflow)
   usePaneShortcut(pane.toggle, panelEnabled && signedIn && (pane.open || pane.canOpen))
   function openPanel() {
     // The button unmounts under the pointer, with no mouseleave to release its tooltip overflow.
@@ -776,10 +789,13 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         borderTop
         ref={setBarElement}
         className={barWidth >= 1024 ? 'preview-bar-card preview-bar-wide' : 'preview-bar-card'}
-        // Beside the open pane the bar narrows to the page's width, left of the pane.
+        // Beside the open pane the bar narrows to the page's width, on the pane's other side.
         style={
           barBesidePanel
-            ? {width: `calc(100% - ${pane.width}px)`, alignSelf: 'flex-start'}
+            ? {
+                width: `calc(100% - ${pane.width}px)`,
+                alignSelf: paneSide === 'right' ? 'flex-start' : 'flex-end',
+              }
             : {width: '100%'}
         }
       >
@@ -793,8 +809,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
               releasesError={data.releasesError}
               perspective={perspective}
               onOpenChange={(open) => setOverflow('perspective', open)}
-              onChange={setPerspective}
-              onRefresh={refreshHost}
+              onSelect={switchPerspective}
             />
           </div>
           {/* Shopify's preview bar: copy link, the "…" menu, then the primary pill. */}
@@ -854,6 +869,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
             load={options.studioConfig}
             studioPath={data.studioPath}
             perspective={studioPerspective}
+            onPerspectiveChange={switchPerspective}
             allFieldsGroup={paneOptions.allFieldsGroup !== false}
             panel={
               panelEnabled
@@ -862,8 +878,8 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
                     onChange: pane.change,
                     width: pane.width,
                     fullHeight: pane.beside,
+                    side: paneSide,
                     resize: pane.resize,
-                    onExitComplete: pane.onExitComplete,
                   }
                 : undefined
             }

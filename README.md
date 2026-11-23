@@ -231,8 +231,8 @@ On the bar page, pass a loader for your Studio config as the third argument:
 **Document pane:** add `documentPane: true` to the same options:
 `mountPreviewBar(target, data, {studioConfig, documentPane: true})`. Signed-in editors get an
 **Edit** button (in place of Visual Editor) whenever the page has a document (from
-`pageDocuments`). It slides in the Studio's document pane in a column on the right, top to bottom
-of the viewport, and the bar narrows to sit left of it. The button hides while the pane is open; the
+`pageDocuments`). It opens the Studio's document pane in a column on the left (or right), top to
+bottom of the viewport, and the bar narrows to sit beside it. The button hides while the pane is open; the
 pane's own × closes it, and `E` (when you're not typing, on the page or in the bar) toggles it. On
 viewports too narrow to keep 360px beside the pane, the pane overlays the page above a full-width
 bar.
@@ -241,9 +241,11 @@ bar.
 mountPreviewBar(target, data, {
   studioConfig,
   // Optional settings instead of `true`:
-  documentPane: {allFieldsGroup: false},
+  documentPane: {allFieldsGroup: false, side: 'right'},
 })
 ```
+
+- `side`: `'left'` (default) or `'right'`.
 
 - `allFieldsGroup: false` hides field groups' **All fields** tab in the pane only (Sanity's
   `ALL_FIELDS_GROUP` with `hidden: true`, added to the bar's copy of your config). As in the Studio,
@@ -259,13 +261,14 @@ mountPreviewBar(target, data, {
   page.
 - The pane follows the page: navigating the site opens the new page's document. It stays open
   across reloads for the tab (`sessionStorage`), and through pages without a document.
-- Drag its left edge (or focus it and use the arrow keys) to resize it, from 320px up to leaving
+- Drag its inner edge (or focus it and use the arrow keys) to resize it, from 320px up to leaving
   360px of page; the width is remembered (`localStorage`).
 - Studio links inside it: an edit intent opens that document in the pane; links to other tools open
   the Studio in a new tab.
 - The bar follows the Studio's own appearance setting (light, dark or system), like the pane.
+- The pane's own Published / Draft / release chips switch the site too, like the bar's menu.
 - The host clips the frame to the bar plus the pane's column (`clip-path`), so the rest of the page
-  stays clickable, and adds `padding-right` to `<html>` so the page reflows. Fixed-position
+  stays clickable, and pads `<html>` on the pane's side so the page reflows. Fixed-position
   elements on your site don't reflow; dialogs and popovers that reach past the pane unclip the frame
   while they're open.
 - Anything that streams the form's value (a document-level `form.components.input`, like
@@ -373,7 +376,7 @@ bar's included.
   layer (a manual popover) that clips it. When a menu, tooltip or dialog opens, the bar asks the host
   to stop clipping, and to clip again 250ms after the last one closes so exit animations play.
 - **Document pane:** the frame's wrapper grows to the viewport and a `clip-path` cuts it to an L
-  (the pane's full-height column plus the narrowed bar); clipped-out areas take no pointer events.
+  (the pane's full-height column, left or right, plus the narrowed bar); clipped-out areas take no pointer events.
 - **Messages:** the host and bar talk through `postMessage` on the site's own origin only
   (`sanity-preview-bar:*`).
 - **Perspective:** stored in Sanity's own `sanity-preview-perspective` cookie, the one Presentation

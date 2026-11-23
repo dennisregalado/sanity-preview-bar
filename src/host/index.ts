@@ -9,9 +9,9 @@
  * manual popover, so it sits in the top layer above every stacking context.
  *
  * With the document pane open the wrapper grows to the full viewport and a `clip-path` cuts it to
- * an L: the pane's full-height column on the right plus the bar, which narrows to sit left of it. Clipped-out areas take no
- * pointer events, so the rest of the page stays clickable, and the page gets `padding-right` so its
- * content reflows beside the pane.
+ * an L: the pane's full-height column (on the left or right) plus the bar, which narrows to sit
+ * beside it. Clipped-out areas take no pointer events, so the rest of the page stays clickable,
+ * and the page gets padding on the pane's side so its content reflows beside the pane.
  */
 import {
   isPreviewBarMessage,
@@ -68,6 +68,8 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
   let overlayOpen = false
   /** The document pane's width, or 0 while it's closed. */
   let panelWidth = 0
+  /** Which edge the pane sits on. */
+  let panelSide: 'left' | 'right' = 'left'
 
   const wrapper = document.createElement('div')
   wrapper.setAttribute('popover', 'manual')
@@ -120,21 +122,20 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
     const panel = panelWidth > 0
     wrapper.style.height = panel ? '100dvh' : `calc${BAR_HEIGHT}`
     wrapper.style.overflow = overlayOpen ? 'visible' : 'hidden'
+    // The column's inner edge, and the bar's top edge, in the wrapper's coordinates.
+    const edge = panelSide === 'right' ? `calc(100% - ${panelWidth}px)` : `${panelWidth}px`
+    const barTop = `calc(100% - ${BAR_HEIGHT})`
     wrapper.style.clipPath =
       panel && !overlayOpen
-        ? `polygon(${[
-            `0 calc(100% - ${BAR_HEIGHT})`,
-            `calc(100% - ${panelWidth}px) calc(100% - ${BAR_HEIGHT})`,
-            `calc(100% - ${panelWidth}px) 0`,
-            '100% 0',
-            '100% 100%',
-            '0 100%',
-          ].join(', ')})`
+        ? `polygon(${(panelSide === 'right'
+            ? [`0 ${barTop}`, `${edge} ${barTop}`, `${edge} 0`, '100% 0', '100% 100%', '0 100%']
+            : ['0 0', `${edge} 0`, `${edge} ${barTop}`, `100% ${barTop}`, '100% 100%', '0 100%']
+          ).join(', ')})`
         : ''
+    root.style.removeProperty('padding-left')
+    root.style.removeProperty('padding-right')
     if (panel && window.innerWidth - panelWidth >= PREVIEW_PANEL_MIN_PAGE_WIDTH) {
-      root.style.setProperty('padding-right', `${panelWidth}px`)
-    } else {
-      root.style.removeProperty('padding-right')
+      root.style.setProperty(`padding-${panelSide}`, `${panelWidth}px`)
     }
   }
 
@@ -164,6 +165,7 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
         break
       case 'sanity-preview-bar:panel':
         panelWidth = event.data.open ? Math.min(event.data.width, window.innerWidth) : 0
+        panelSide = event.data.side
         layout()
         break
       case 'sanity-preview-bar:navigate':
@@ -207,6 +209,7 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
     window.removeEventListener('keydown', onKeyDown)
     window.removeEventListener('resize', onResize)
     root.style.removeProperty('padding-bottom')
+    root.style.removeProperty('padding-left')
     root.style.removeProperty('padding-right')
     wrapper.remove()
   }

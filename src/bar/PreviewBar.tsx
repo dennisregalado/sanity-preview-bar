@@ -18,11 +18,7 @@ import {AnimatePresence} from 'motion/react'
 import {createRoot} from 'react-dom/client'
 import type {PreviewBarData} from '../core/data'
 import {parsePerspective, perspectiveTone, type PreviewPerspective} from '../core/perspective'
-import {
-  isPreviewBarMessage,
-  PREVIEW_PANEL_MIN_PAGE_WIDTH,
-  type PreviewBarMessage,
-} from '../core/protocol'
+import {isPreviewBarMessage, type PreviewBarMessage} from '../core/protocol'
 import {BarDataContext, useBarData} from './context'
 import {injectStudioDocumentCss, keepStyledComponentsLast} from './document-css'
 import {Logo} from './logo'
@@ -32,7 +28,7 @@ import {StudioMenuItem} from './StudioMenuItem'
 import {StudioTooltip} from './StudioTooltip'
 import {WorkspaceMenu} from './WorkspaceMenu'
 import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
-import type {PanelEntry} from './DocumentPanel'
+import {useDocumentPaneState} from './pane-state'
 import {type StudioConfigLoader, StudioLayer} from './StudioLayer'
 
 export type {StudioConfigLoader}
@@ -95,6 +91,11 @@ const CARD_CSS = `
 ::-webkit-scrollbar-thumb { background-clip: content-box; background-color: var(--card-border-color); border: 4px solid transparent; }
 ::-webkit-scrollbar-thumb:hover { background-color: var(--card-muted-fg-color); }
 ::-webkit-scrollbar-track { background: transparent; }
+/* The document pane's resizer: a 6px strip on its left edge; a 2px focus-colour line while it's
+   hovered, dragged or focused, like the Studio's pane resizer. */
+.preview-bar-pane-resizer { position: absolute; top: 0; bottom: 0; left: 0; width: 6px; cursor: ew-resize; touch-action: none; outline: none; z-index: 1000; }
+.preview-bar-pane-resizer::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: transparent; transition: background-color 0.1s; }
+.preview-bar-pane-resizer:hover::after, .preview-bar-pane-resizer[data-active]::after, .preview-bar-pane-resizer:focus-visible::after { background: var(--card-focus-ring-color, #556bfc); }
 @keyframes preview-bar-spin { to { transform: rotate(360deg); } }
 .preview-bar-spinner { animation: preview-bar-spin 0.6s linear infinite; }
 `
@@ -213,32 +214,6 @@ function overflowWhileHovered(key: string, setOverflow: SetOverflow) {
   }
 }
 
-/** The document pane's width: Presentation-like, never wider than the viewport. */
-const PANEL_WIDTH = 420
-
-/**
- * The pane's width, and whether it sits beside the page: full height, with the bar narrowed to its
- * left. On a narrow viewport it overlays the page instead, above a full-width bar.
- */
-function panelLayout() {
-  const width = Math.min(PANEL_WIDTH, window.innerWidth)
-  return {width, beside: window.innerWidth - width >= PREVIEW_PANEL_MIN_PAGE_WIDTH}
-}
-
-function usePanelLayout() {
-  const [layout, setLayout] = useState(panelLayout)
-  useEffect(() => {
-    const onResize = () =>
-      setLayout((current) => {
-        const next = panelLayout()
-        return next.width === current.width && next.beside === current.beside ? current : next
-      })
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
-  return layout
-}
-
 const OVERLAYS = '[data-ui="Dialog"], [data-ui="Popover"], [data-ui="Tooltip"]'
 
 /**
@@ -276,6 +251,40 @@ function usePaneOverlays(open: boolean, width: number, setOverflow: SetOverflow)
       setOverflow('pane-overlay', false)
     }
   }, [open, width, setOverflow])
+}
+
+function isEditable(target: EventTarget | null) {
+  const element = target as HTMLElement | null
+  return Boolean(
+    element?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"]'),
+  )
+}
+
+/**
+ * `E` toggles the document pane, from the bar's frame or (forwarded by the host) the page, unless
+ * the editor is typing. A bare key, like GitHub's `.` and `e`, so it collides with no browser
+ * shortcut.
+ */
+function usePaneShortcut(toggle: () => void, enabled: boolean) {
+  useEffect(() => {
+    if (!enabled) return
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key.toLowerCase() !== 'e' || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.repeat || event.isComposing || isEditable(event.target)) return
+      event.preventDefault()
+      toggle()
+    }
+    function onMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin || event.source !== window.parent) return
+      if (isPreviewBarMessage(event.data) && event.data.type === 'sanity-preview-bar:pane') toggle()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('message', onMessage)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('message', onMessage)
+    }
+  }, [toggle, enabled])
 }
 
 /** The share endpoint refused because Presentation's sharing was turned off after the bar loaded. */
@@ -661,39 +670,29 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     }
   }, [options.documentPane, signedIn, studioReady, data.pageDocuments, data.basePath, path])
 
-  // The document pane: a stack (the page's document, then references opened from it), empty
-  // while closed. It follows the page: navigating elsewhere opens the new page's document.
+  // The document pane (`pane-state.ts`): it follows the page and survives reloads for this tab.
   const panelEnabled = Boolean(options.documentPane && options.studioConfig)
   const paneOptions: DocumentPaneOptions =
     typeof options.documentPane === 'object' ? options.documentPane : {}
-  const [panelStack, setPanelStack] = useState<PanelEntry[]>([])
-  const panelOpen = signedIn && panelStack.length > 0
-  const {width: panelWidth, beside: panelBeside} = usePanelLayout()
-  const barBesidePanel = panelOpen && panelBeside
-  const pageDocumentId = pageDocument ? publishedId(pageDocument._id) : null
-  useEffect(() => {
-    setPanelStack((stack) => {
-      if (stack.length === 0) return stack
-      if (!pageDocument || !pageDocumentId) return []
-      return stack[0]?.id === pageDocumentId
-        ? stack
-        : [{id: pageDocumentId, type: pageDocument._type, params: {}}]
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageDocumentId])
+  const pane = useDocumentPaneState({
+    enabled: panelEnabled && signedIn,
+    pageDocument,
+    setOverflow,
+  })
+  const barBesidePanel = pane.visible && pane.beside
   useEffect(() => {
     postToHost({
       type: 'sanity-preview-bar:panel',
-      open: panelOpen,
-      width: panelOpen ? panelWidth : 0,
+      open: pane.visible,
+      width: pane.visible ? pane.width : 0,
     })
-  }, [panelOpen, panelWidth])
-  usePaneOverlays(panelOpen, panelWidth, setOverflow)
+  }, [pane.visible, pane.width])
+  usePaneOverlays(pane.visible, pane.width, setOverflow)
+  usePaneShortcut(pane.toggle, panelEnabled && signedIn && (pane.open || pane.canOpen))
   function openPanel() {
-    if (!pageDocument || !pageDocumentId) return
     // The button unmounts under the pointer, with no mouseleave to release its tooltip overflow.
     setOverflow('edit-button', false)
-    setPanelStack([{id: pageDocumentId, type: pageDocument._type, params: {}}])
+    pane.openPane()
   }
 
   function closeStudioSearch() {
@@ -761,7 +760,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         // Beside the open pane the bar narrows to the page's width, left of the pane.
         style={
           barBesidePanel
-            ? {width: `calc(100% - ${panelWidth}px)`, alignSelf: 'flex-start'}
+            ? {width: `calc(100% - ${pane.width}px)`, alignSelf: 'flex-start'}
             : {width: '100%'}
         }
       >
@@ -790,9 +789,9 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
             )}
             <MoreMenu setOverflow={setOverflow} />
             {/* Hidden while the pane is open: the pane's own × closes it. */}
-            {panelEnabled && signedIn && pageDocument && !panelOpen && (
+            {panelEnabled && signedIn && pane.canOpen && !pane.open && (
               <span style={{display: 'flex'}} {...overflowWhileHovered('edit-button', setOverflow)}>
-                <StudioTooltip content="Edit this page" disabled={showLabels}>
+                <StudioTooltip content="Edit this page" hotkeys={['E']}>
                   {/* The bar's primary pill (white), in place of Visual Editor. */}
                   <Button
                     mode="default"
@@ -828,30 +827,36 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
           </div>
         </div>
       </Card>
+      {/* Zero-size, so nothing the Studio renders in place (its loading block) moves the bar; the
+          pane and popovers are fixed or portaled. */}
       {signedIn && options.studioConfig && (
-        <StudioLayer
-          load={options.studioConfig}
-          studioPath={data.studioPath}
-          perspective={studioPerspective}
-          allFieldsGroup={paneOptions.allFieldsGroup !== false}
-          panel={
-            panelEnabled
-              ? {
-                  stack: panelOpen ? panelStack : [],
-                  onChange: setPanelStack,
-                  width: panelWidth,
-                  fullHeight: panelBeside,
-                }
-              : undefined
-          }
-          onReady={() => setStudioReady(true)}
-          search={{
-            open: studioSearch && searchOpen,
-            types: searchTypes,
-            onClose: closeStudioSearch,
-            onSelect: openStudioSearchResult,
-          }}
-        />
+        <div style={{position: 'absolute', width: 0, height: 0}}>
+          <StudioLayer
+            load={options.studioConfig}
+            studioPath={data.studioPath}
+            perspective={studioPerspective}
+            allFieldsGroup={paneOptions.allFieldsGroup !== false}
+            panel={
+              panelEnabled
+                ? {
+                    stack: pane.open ? pane.stack : [],
+                    onChange: pane.change,
+                    width: pane.width,
+                    fullHeight: pane.beside,
+                    resize: pane.resize,
+                    onExitComplete: pane.onExitComplete,
+                  }
+                : undefined
+            }
+            onReady={() => setStudioReady(true)}
+            search={{
+              open: studioSearch && searchOpen,
+              types: searchTypes,
+              onClose: closeStudioSearch,
+              onSelect: openStudioSearchResult,
+            }}
+          />
+        </div>
       )}
       <AnimatePresence onExitComplete={() => setOverflow('search', false)}>
         {searchOpen && !studioSearch && data.search && (
@@ -929,9 +934,4 @@ export function mountPreviewBar(
     root.unmount()
     stopReordering()
   }
-}
-
-/** A document's published ID: the pane takes it whatever version the page resolved. */
-function publishedId(id: string) {
-  return id.replace(/^drafts\./, '').replace(/^versions\.[^.]+\./, '')
 }

@@ -32,6 +32,8 @@ export type PreviewBarMessage =
   | {type: 'sanity-preview-bar:path'; path: string}
   /** Host → bar: ⌘K / Ctrl+K was pressed on the storefront page; open search. */
   | {type: 'sanity-preview-bar:search'}
+  /** Host → bar: `E` was pressed on the storefront page (not while typing); toggle the pane. */
+  | {type: 'sanity-preview-bar:pane'}
   /** Bar → host: a search result was chosen; navigate the storefront there (client-side). */
   | {type: 'sanity-preview-bar:navigate'; href: string}
   /**
@@ -57,6 +59,7 @@ export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
     case 'sanity-preview-bar:refresh':
     case 'sanity-preview-bar:refreshed':
     case 'sanity-preview-bar:search':
+    case 'sanity-preview-bar:pane':
       return true
     case 'sanity-preview-bar:navigate':
       return 'href' in data && isRootRelative(data.href)

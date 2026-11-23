@@ -93,6 +93,8 @@ function paneLink<P extends object>(name: string, action: (props: P) => void) {
   return Link
 }
 
+type IntentHandler = (name: string, params: Record<string, string>) => void
+
 function noop(name: string) {
   return () => console.warn(`sanity-preview-bar: the document pane has no "${name}"`)
 }
@@ -110,24 +112,27 @@ function PaneRouter({
   onParams,
   onOpen,
   onBack,
+  onIntent,
   children,
 }: {
   structure: StructureModule
   entry: PanelEntry
+  onIntent: IntentHandler
   onParams: (params: PaneParams) => void
   onOpen: (entry: PanelEntry) => void
   onBack: () => void
   children: ReactNode
 }) {
   // Links are components: keep their identity stable across renders, or every link remounts.
-  const links = useRef({onOpen, onBack})
-  links.current = {onOpen, onBack}
+  const links = useRef({onOpen, onBack, onIntent})
+  links.current = {onOpen, onBack, onIntent}
   const components = useMemo(
     () => ({
       BackLink: paneLink<object>('PaneBackLink', () => links.current.onBack()),
       ChildLink: paneLink<{childId: string; childType?: string}>('PaneChildLink', (props) => {
         if (props.childType)
           links.current.onOpen({id: props.childId, type: props.childType, params: {}})
+        else links.current.onIntent('edit', {id: props.childId})
       }),
       ReferenceChildLink: paneLink<{documentId: string; documentType: string}>(
         'PaneReferenceChildLink',
@@ -170,10 +175,10 @@ function PaneRouter({
       setView: noop('setView'),
       setParams: (params: PaneParams) => onParams(params),
       setPayload: noop('setPayload'),
-      navigateIntent: noop('navigateIntent'),
+      navigateIntent: (name: string, params: Record<string, string>) => onIntent(name, params),
       createPathWithParams: (params: PaneParams) => queryString({...entry.params, ...params}),
     }),
-    [components, entry.params, onBack, onOpen, onParams],
+    [components, entry.params, onBack, onOpen, onParams, onIntent],
   )
 
   const {PaneRouterContext} = structure
@@ -184,12 +189,15 @@ export function DocumentPanel({
   structure,
   stack,
   onChange,
+  onIntent,
   fallback,
 }: {
   structure: StructureModule
   /** Bottom first: the page's document, then any references opened from it. */
   stack: PanelEntry[]
   onChange: (stack: PanelEntry[]) => void
+  /** Intents the pane can't show itself (other tools, documents without a type). */
+  onIntent: IntentHandler
   fallback: ReactNode
 }) {
   const entry = stack[stack.length - 1]
@@ -230,6 +238,7 @@ export function DocumentPanel({
           onParams={onParams}
           onOpen={onOpen}
           onBack={onBack}
+          onIntent={onIntent}
         >
           <Suspense fallback={fallback}>
             <DocumentPane

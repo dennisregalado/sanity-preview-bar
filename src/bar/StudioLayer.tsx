@@ -14,10 +14,13 @@
  * the release version the page is showing.
  */
 import {Card, Flex, Spinner} from '@sanity/ui'
+import {AnimatePresence, MotionConfig, motion} from 'motion/react'
 import {
   type ComponentType,
   type Context,
   createContext,
+  type KeyboardEvent,
+  type PointerEvent,
   type ReactNode,
   useContext,
   useEffect,
@@ -134,7 +137,86 @@ export type StudioPanel = {
   width: number
   /** Top to bottom of the viewport, with the bar beside it; otherwise it stops above the bar. */
   fullHeight: boolean
+  /** Drag (or arrow-key) resizing from the pane's left edge; `null` when it overlays the page. */
+  resize: {start: () => void; to: (width: number) => void; end: () => void} | null
+  /** The pane finished sliding out; the host can release its column. */
+  onExitComplete: () => void
 }
+
+/** Intent parameters from a Studio intent path segment, `id=abc;type=page`. */
+function intentParams(segment: string) {
+  return Object.fromEntries(
+    segment.split(';').flatMap((pair) => {
+      const [key, value] = pair.split('=')
+      return key && value !== undefined
+        ? [[decodeURIComponent(key), decodeURIComponent(value)]]
+        : []
+    }),
+  ) as Record<string, string>
+}
+
+/** The Studio's URL for an intent, `/studio/intent/edit/id=abc;type=page`. */
+function intentHref(studioPath: string, name: string, params: Record<string, string>) {
+  const segment = Object.entries(params)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join(';')
+  return `${studioPath}/intent/${encodeURIComponent(name)}/${segment}`
+}
+
+/** Studio's pane resizer: an invisible strip on the pane's edge that shows a line while in use. */
+function PaneResizer({width, resize}: {width: number; resize: NonNullable<StudioPanel['resize']>}) {
+  const drag = useRef<{x: number; width: number} | null>(null)
+  const [active, setActive] = useState(false)
+
+  function onPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    drag.current = {x: event.clientX, width}
+    setActive(true)
+    resize.start()
+  }
+  function onPointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (!drag.current) return
+    resize.to(drag.current.width + drag.current.x - event.clientX)
+  }
+  function onPointerUp() {
+    if (!drag.current) return
+    drag.current = null
+    setActive(false)
+    resize.end()
+  }
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const step = event.shiftKey ? 64 : 16
+    if (event.key === 'ArrowLeft') resize.to(width + step)
+    else if (event.key === 'ArrowRight') resize.to(width - step)
+    else return
+    event.preventDefault()
+  }
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize editor"
+      aria-valuenow={width}
+      tabIndex={0}
+      className="preview-bar-pane-resizer"
+      data-active={active ? '' : undefined}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onKeyDown={onKeyDown}
+      onKeyUp={(event) => {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') resize.end()
+      }}
+    />
+  )
+}
+
+/** The Studio has no pane motion of its own; a short ease-out slide, off for reduced motion. */
+const PANE_TRANSITION = {type: 'tween', duration: 0.2, ease: [0.2, 0, 0, 1]} as const
 
 /** Sets the Studio search's type filter to the page types once, the first time it opens. */
 function TypeFilterPreset({sanity, types}: {sanity: SanityModule; types: string[]}) {
@@ -200,7 +282,53 @@ const NO_LOCATIONS = {options: [{}], register: () => () => {}}
 
 type PaneModules = {structure: StructureModule; presentationDocument: Context<unknown>}
 
-function PanelColumn({sanity, panel}: {sanity: SanityModule; panel: StudioPanel}) {
+/**
+ * Studio links in the pane (intent links, links to other tools) would navigate the bar's in-memory
+ * router, which shows nothing. A capture listener on the pane takes their clicks first (React
+ * handles clicks at its root, after this): an edit intent opens in the pane, anything else opens
+ * the Studio in a new tab. Links with `#` (the pane's own router links) are left alone.
+ */
+function useStudioLinks(
+  studioPath: string,
+  onIntent: (name: string, params: Record<string, string>) => void,
+) {
+  const [element, setElement] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!element) return
+    const root = studioPath.replace(/\/$/, '')
+    function onClick(event: MouseEvent) {
+      if (event.defaultPrevented || event.button !== 0) return
+      const anchor = (event.target as Element | null)?.closest?.('a[href]')
+      if (!anchor || !element?.contains(anchor)) return
+      const url = new URL(anchor.getAttribute('href') ?? '', window.location.href)
+      if (url.origin !== window.location.origin || !url.pathname.startsWith(`${root}/`)) return
+      event.preventDefault()
+      event.stopPropagation()
+      const intent = url.pathname.slice(root.length).match(/^\/intent\/([^/]+)\/([^/]*)/)
+      if (intent?.[1] && !(event.metaKey || event.ctrlKey || event.shiftKey)) {
+        onIntent(decodeURIComponent(intent[1]), intentParams(intent[2] ?? ''))
+        return
+      }
+      window.open(`${url.pathname}${url.search}`, '_blank', 'noopener')
+    }
+    element.addEventListener('click', onClick, true)
+    return () => element.removeEventListener('click', onClick, true)
+  }, [element, studioPath, onIntent])
+  return setElement
+}
+
+function PanelColumn({
+  sanity,
+  panel,
+  studioPath,
+  onIntent,
+}: {
+  sanity: SanityModule
+  panel: StudioPanel
+  studioPath: string
+  onIntent: (name: string, params: Record<string, string>) => void
+}) {
+  const linksRef = useStudioLinks(studioPath, onIntent)
   const [modules, setModules] = useState<PaneModules | null>(null)
   useEffect(() => {
     let cancelled = false
@@ -222,34 +350,40 @@ function PanelColumn({sanity, panel}: {sanity: SanityModule; panel: StudioPanel}
     }
   }, [])
   return (
-    <Card
+    <motion.div
+      ref={linksRef}
       data-preview-bar-panel=""
-      borderLeft
-      shadow={2}
+      initial={{x: '100%'}}
+      animate={{x: 0}}
+      exit={{x: '100%'}}
+      transition={PANE_TRANSITION}
       style={{
         position: 'fixed',
         top: 0,
         right: 0,
         bottom: panel.fullHeight ? 0 : PREVIEW_BAR_HEIGHT,
         width: panel.width,
-        overflow: 'hidden',
       }}
     >
-      {modules ? (
-        <StudioLayoutMiddleware sanity={sanity}>
-          <modules.presentationDocument.Provider value={NO_LOCATIONS}>
-            <DocumentPanel
-              structure={modules.structure}
-              stack={panel.stack}
-              onChange={panel.onChange}
-              fallback={<PanelLoading />}
-            />
-          </modules.presentationDocument.Provider>
-        </StudioLayoutMiddleware>
-      ) : (
-        <PanelLoading />
-      )}
-    </Card>
+      <Card borderLeft shadow={2} height="fill" overflow="hidden">
+        {modules ? (
+          <StudioLayoutMiddleware sanity={sanity}>
+            <modules.presentationDocument.Provider value={NO_LOCATIONS}>
+              <DocumentPanel
+                structure={modules.structure}
+                stack={panel.stack}
+                onChange={panel.onChange}
+                onIntent={onIntent}
+                fallback={<PanelLoading />}
+              />
+            </modules.presentationDocument.Provider>
+          </StudioLayoutMiddleware>
+        ) : (
+          <PanelLoading />
+        )}
+      </Card>
+      {panel.resize && <PaneResizer width={panel.width} resize={panel.resize} />}
+    </motion.div>
   )
 }
 
@@ -308,6 +442,19 @@ export function StudioLayer({
     loaded?.history.replace(location)
   }, [loaded, location])
 
+  // Intents the pane can't show itself: an edit intent for a document opens it in the pane;
+  // anything else opens in the Studio, in a new tab.
+  const panelRef = useRef(panel)
+  panelRef.current = panel
+  const openIntent = useRef((name: string, params: Record<string, string>) => {
+    const current = panelRef.current
+    if (name === 'edit' && params.id && params.type && current && current.stack.length > 0) {
+      current.onChange([...current.stack, {id: params.id, type: params.type, params: {}}])
+      return
+    }
+    window.open(intentHref(studioPath, name, params), '_blank', 'noopener')
+  }).current
+
   if (!loaded) return null
   const {sanity} = loaded
   const {StudioProvider, SearchProvider, SearchPopover} = sanity
@@ -329,7 +476,19 @@ export function StudioLayer({
           />
         </SearchProvider>
       )}
-      {panel && panel.stack.length > 0 && <PanelColumn sanity={sanity} panel={panel} />}
+      <MotionConfig reducedMotion="user">
+        <AnimatePresence onExitComplete={panel?.onExitComplete}>
+          {panel && panel.stack.length > 0 && (
+            <PanelColumn
+              key="pane"
+              sanity={sanity}
+              panel={panel}
+              studioPath={studioPath}
+              onIntent={openIntent}
+            />
+          )}
+        </AnimatePresence>
+      </MotionConfig>
     </StudioProvider>
   )
 }

@@ -46,6 +46,13 @@ export function isTopWindow() {
   return typeof window !== 'undefined' && window.self === window.top
 }
 
+function isEditable(target: EventTarget | null) {
+  const element = target as HTMLElement | null
+  return Boolean(
+    element?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"]'),
+  )
+}
+
 function currentPath() {
   return window.location.pathname + window.location.search
 }
@@ -170,11 +177,19 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
     }
   }
 
-  // ⌘K / Ctrl+K on the page opens the bar's search, like the Studio's shortcut.
+  // ⌘K / Ctrl+K on the page opens the bar's search, like the Studio's shortcut; `E` (not while
+  // typing) toggles the document pane, when the bar has one.
   function onKeyDown(event: KeyboardEvent) {
-    if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k') return
-    event.preventDefault()
-    post({type: 'sanity-preview-bar:search'})
+    const key = event.key.toLowerCase()
+    if ((event.metaKey || event.ctrlKey) && key === 'k') {
+      event.preventDefault()
+      post({type: 'sanity-preview-bar:search'})
+      return
+    }
+    if (key !== 'e' || event.metaKey || event.ctrlKey || event.altKey) return
+    if (event.repeat || event.isComposing || event.defaultPrevented || isEditable(event.target))
+      return
+    post({type: 'sanity-preview-bar:pane'})
   }
 
   function onResize() {

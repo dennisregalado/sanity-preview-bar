@@ -231,10 +231,23 @@ On the bar page, pass a loader for your Studio config as the third argument:
 **Document pane:** add `documentPane: true` to the same options:
 `mountPreviewBar(target, data, {studioConfig, documentPane: true})`. Signed-in editors get an
 **Edit** button (in place of Visual Editor) whenever the page has a document (from
-`pageDocuments`). It opens the Studio's document pane in a 420px column on the right, top to bottom
+`pageDocuments`). It slides in the Studio's document pane in a column on the right, top to bottom
 of the viewport, and the bar narrows to sit left of it. The button hides while the pane is open; the
-pane's own × closes it. On viewports too narrow to keep 360px beside the pane, the pane overlays the
-page above a full-width bar.
+pane's own × closes it, and `E` (when you're not typing, on the page or in the bar) toggles it. On
+viewports too narrow to keep 360px beside the pane, the pane overlays the page above a full-width
+bar.
+
+```ts
+mountPreviewBar(target, data, {
+  studioConfig,
+  // Optional settings instead of `true`:
+  documentPane: {allFieldsGroup: false},
+})
+```
+
+- `allFieldsGroup: false` hides field groups' **All fields** tab in the pane only (Sanity's
+  `ALL_FIELDS_GROUP` with `hidden: true`, added to the bar's copy of your config). As in the Studio,
+  fields outside every group then don't show.
 
 - The real editor: the same `DocumentPane` Presentation renders, built from public
   `sanity/structure` exports, with your Studio config's plugins, inputs, actions and badges. Your
@@ -244,7 +257,13 @@ page above a full-width bar.
 - Reference links open the referenced document in the pane; the pane's × goes back, then closes.
 - Presentation's "Preview this page" locations banner is hidden in the pane: you're already on the
   page.
-- The pane follows the page: navigating the site opens the new page's document.
+- The pane follows the page: navigating the site opens the new page's document. It stays open
+  across reloads for the tab (`sessionStorage`), and through pages without a document.
+- Drag its left edge (or focus it and use the arrow keys) to resize it, from 320px up to leaving
+  360px of page; the width is remembered (`localStorage`).
+- Studio links inside it: an edit intent opens that document in the pane; links to other tools open
+  the Studio in a new tab.
+- The bar follows the Studio's own appearance setting (light, dark or system), like the pane.
 - The host clips the frame to the bar plus the pane's column (`clip-path`), so the rest of the page
   stays clickable, and adds `padding-right` to `<html>` so the page reflows. Fixed-position
   elements on your site don't reflow; dialogs and popovers that reach past the pane unclip the frame

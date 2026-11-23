@@ -9,7 +9,7 @@ import EyeClosedIcon from '@sanity/icons/EyeClosed'
 import LeaveIcon from '@sanity/icons/Leave'
 import LinkIcon from '@sanity/icons/Link'
 import SearchIcon from '@sanity/icons/Search'
-import {Button, Card, Flex, Text, ThemeProvider, useMediaIndex, usePrefersDark} from '@sanity/ui'
+import {Button, Card, Flex, Text, ThemeProvider, usePrefersDark} from '@sanity/ui'
 import {Menu, MenuButton} from '@sanity/ui/menu'
 import {Popover} from '@sanity/ui/popover'
 import {buildTheme} from '@sanity/ui/theme'
@@ -62,7 +62,9 @@ export type {PreviewBarData}
 
 const theme = buildTheme()
 
-// Sanity UI's space scale has no 10px step: 10px inline padding, 20px from 1024px up.
+// Sanity UI's space scale has no 10px step: 10px inline padding, 20px from 1024px up. Breakpoints
+// follow the bar's own width (`.preview-bar-wide`), not the viewport's: beside the document pane
+// the bar is only as wide as the page.
 const CARD_CSS = `
 .preview-bar-card { padding-inline: 10px; }
 /* HomeButton's StyledCard: radius 2 (3px), no underline, focus ring only for keyboard focus. */
@@ -70,7 +72,7 @@ const CARD_CSS = `
 .preview-search-row[data-active] { background-color: var(--card-muted-bg-color); }
 .preview-bar-home { display: flex; border-radius: 3px; outline: none; text-decoration: none; }
 .preview-bar-home:focus-visible { box-shadow: 0 0 0 1px var(--card-bg-color), 0 0 0 3px var(--card-focus-ring-color); }
-@media (min-width: 1024px) { .preview-bar-card { padding-inline: 20px; } }
+.preview-bar-wide { padding-inline: 20px; }
 /* Brand, perspective switcher, actions. Below 1024px (tablet and phone) a row with the switcher
    after the brand; from 1024px a 1fr / auto / 1fr grid, so the switcher sits on the bar's centre
    whatever the side groups measure. 4px gaps, the Studio navbar's spacing. */
@@ -79,11 +81,9 @@ const CARD_CSS = `
 .preview-bar-center { display: flex; align-items: center; flex: 1; min-width: 0; }
 
 .preview-bar-end { display: flex; align-items: center; gap: 4px; flex: none; }
-@media (min-width: 1024px) {
-  .preview-bar-layout { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
-  .preview-bar-center { justify-self: center; }
-  .preview-bar-end { justify-self: end; }
-}
+.preview-bar-wide .preview-bar-layout { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.preview-bar-wide .preview-bar-center { justify-self: center; }
+.preview-bar-wide .preview-bar-end { justify-self: end; }
 /* The Studio's global scrollbar (GlobalStyleSheet): 12px, a 4px transparent border around a
    border-colour thumb that darkens on hover, transparent track. */
 ::-webkit-scrollbar { width: 12px; height: 12px; }
@@ -285,6 +285,21 @@ function usePaneShortcut(toggle: () => void, enabled: boolean) {
       window.removeEventListener('message', onMessage)
     }
   }, [toggle, enabled])
+}
+
+/** An element's width, kept current; the viewport's until it's measured. */
+function useElementWidth(element: HTMLElement | null) {
+  const [width, setWidth] = useState(() => window.innerWidth)
+  useEffect(() => {
+    if (!element) return
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry)
+        setWidth(Math.round(entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width))
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [element])
+  return width
 }
 
 /** The share endpoint refused because Presentation's sharing was turned off after the bar loaded. */
@@ -624,8 +639,11 @@ function useSearchShortcut(open: () => void, enabled: boolean) {
 
 function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}) {
   const path = useHostPath()
-  // Theme media is [360, 600, …]: button labels from 600px up, icon-only below so the bar fits.
-  const showLabels = useMediaIndex() >= 2
+  // The bar's own width (it narrows beside the document pane). Theme media is [360, 600, …]:
+  // button labels from 600px up, icon-only below so the bar fits; the centred grid from 1024px.
+  const [barElement, setBarElement] = useState<HTMLElement | null>(null)
+  const barWidth = useElementWidth(barElement)
+  const showLabels = barWidth >= 600
   // Local state: a switch updates the bar in place while the host refreshes the page around it.
   const [perspective, setPerspective] = useState<PreviewPerspective>(() =>
     parsePerspective(data.perspective),
@@ -756,7 +774,8 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         padding={3}
         // Only the top edge: the bar spans the viewport, so side and bottom borders read as a box.
         borderTop
-        className="preview-bar-card"
+        ref={setBarElement}
+        className={barWidth >= 1024 ? 'preview-bar-card preview-bar-wide' : 'preview-bar-card'}
         // Beside the open pane the bar narrows to the page's width, left of the pane.
         style={
           barBesidePanel

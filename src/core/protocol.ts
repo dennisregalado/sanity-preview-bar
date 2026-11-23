@@ -33,6 +33,49 @@ export function readPreviewBarPosition(search: string): PreviewBarPosition {
   return new URLSearchParams(search).get(PREVIEW_BAR_POSITION_PARAM) === 'top' ? 'top' : 'bottom'
 }
 
+/**
+ * Where the bar is framed: on the site (by `sanity-preview-bar/host`) or in the Studio's Visual
+ * Editor tool (`sanity-preview-bar/studio`), which passes `?context=tool` in the frame's URL.
+ */
+export type PreviewBarContext = 'site' | 'tool'
+
+export const PREVIEW_BAR_CONTEXT_PARAM = 'context'
+
+export function readPreviewBarContext(search: string): PreviewBarContext {
+  return new URLSearchParams(search).get(PREVIEW_BAR_CONTEXT_PARAM) === 'tool' ? 'tool' : 'site'
+}
+
+/**
+ * The Visual Editor tool frames the site under this window name. It survives navigation inside
+ * the frame, so the site can tell it's in the tool (not in Presentation) on every page.
+ */
+export const PREVIEW_BAR_FRAME_NAME = 'sanity-preview-bar-frame'
+
+/**
+ * Whether this window is the site framed by the Visual Editor tool. Sites that switch on
+ * Presentation's stega and overlays when framed (`window.self !== window.top`) should check this
+ * first: in the tool, the page reads like a normal preview tab and mounts
+ * `mountPreviewBarFrame` instead.
+ */
+export function isPreviewBarFrame() {
+  return (
+    typeof window !== 'undefined' &&
+    window.self !== window.top &&
+    window.name === PREVIEW_BAR_FRAME_NAME
+  )
+}
+
+/** A document to open in the Visual Editor's pane; a new one carries its template. */
+export type PreviewBarDocument = {
+  id: string
+  type: string
+  template?: string
+  templateParameters?: Record<string, unknown>
+}
+
+/** The bar's perspective as a menu selection: the chosen layer and the hidden ones. */
+export type PreviewBarSelection = {selected: string; excluded: string[]}
+
 export type PreviewBarMessage =
   /** Bar → host, once mounted: asks for the current storefront path. */
   | {type: 'sanity-preview-bar:ready'}
@@ -52,6 +95,18 @@ export type PreviewBarMessage =
   | {type: 'sanity-preview-bar:pane'}
   /** Bar → host: a search result was chosen; navigate the storefront there (client-side). */
   | {type: 'sanity-preview-bar:navigate'; href: string}
+  /** Bar → Visual Editor tool: open this document in the tool's pane (Edit, Create new document). */
+  | {type: 'sanity-preview-bar:open-document'; document: PreviewBarDocument}
+  /** Visual Editor tool → bar: the tool's pane opened or closed (Edit hides while it's open). */
+  | {type: 'sanity-preview-bar:editor-state'; open: boolean}
+  /** Bar → Visual Editor tool: show the site at desktop width or as a 375px phone. */
+  | {type: 'sanity-preview-bar:viewport'; mode: 'desktop' | 'mobile'}
+  /** Bar → Visual Editor tool: the bar's perspective changed; the Studio follows it. */
+  | {type: 'sanity-preview-bar:perspective'; selection: PreviewBarSelection}
+  /** Visual Editor tool → bar: the Studio's perspective changed (pane chips, navbar); switch to it. */
+  | {type: 'sanity-preview-bar:set-perspective'; selection: PreviewBarSelection}
+  /** Site framed by the Visual Editor tool → tool: its path and query, on load and navigation. */
+  | {type: 'sanity-preview-bar:frame-path'; path: string}
   /**
    * Bar → host: the document pane opened (a full-height column `width` CSS pixels wide on `side`)
    * or closed. The host clips the frame to that column plus the bar and reflows the page beside it.
@@ -106,11 +161,45 @@ export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
         (data.side === 'left' || data.side === 'right')
       )
     case 'sanity-preview-bar:path':
+    case 'sanity-preview-bar:frame-path':
       // Root-relative only: the bar builds its Studio links from it.
       return 'path' in data && isRootRelative(data.path)
+    case 'sanity-preview-bar:open-document':
+      return 'document' in data && isDocument(data.document)
+    case 'sanity-preview-bar:editor-state':
+      return 'open' in data && typeof data.open === 'boolean'
+    case 'sanity-preview-bar:viewport':
+      return 'mode' in data && (data.mode === 'desktop' || data.mode === 'mobile')
+    case 'sanity-preview-bar:perspective':
+    case 'sanity-preview-bar:set-perspective':
+      return 'selection' in data && isSelection(data.selection)
     default:
       return false
   }
+}
+
+function isDocument(value: unknown): value is PreviewBarDocument {
+  if (typeof value !== 'object' || value === null) return false
+  const doc = value as Record<string, unknown>
+  return (
+    typeof doc.id === 'string' &&
+    doc.id.length > 0 &&
+    typeof doc.type === 'string' &&
+    doc.type.length > 0 &&
+    (doc.template === undefined || typeof doc.template === 'string') &&
+    (doc.templateParameters === undefined ||
+      (typeof doc.templateParameters === 'object' && doc.templateParameters !== null))
+  )
+}
+
+function isSelection(value: unknown): value is PreviewBarSelection {
+  if (typeof value !== 'object' || value === null) return false
+  const selection = value as Record<string, unknown>
+  return (
+    typeof selection.selected === 'string' &&
+    Array.isArray(selection.excluded) &&
+    selection.excluded.every((id) => typeof id === 'string')
+  )
 }
 
 /** Same-site paths only: the bar builds links from them and the host navigates to them. */

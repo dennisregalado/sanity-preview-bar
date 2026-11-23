@@ -17,6 +17,7 @@ import type {PreviewBarData} from '../core/data'
 import {
   parsePerspective,
   perspectiveTone,
+  selectionOf,
   serializePerspective,
   type PreviewPerspective,
 } from '../core/perspective'
@@ -24,6 +25,8 @@ import {
   isPreviewBarMessage,
   type PaneSide,
   type PreviewBarMessage,
+  type PreviewBarSelection,
+  readPreviewBarContext,
   readPreviewBarPosition,
 } from '../core/protocol'
 import {BarDataContext, BarPositionContext, useBarData, useBarPlacement} from './context'
@@ -35,8 +38,9 @@ import {StudioMenuItem} from './StudioMenuItem'
 import {StudioTooltip} from './StudioTooltip'
 import {WorkspaceMenu} from './WorkspaceMenu'
 import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
-import {useDocumentPaneState} from './pane-state'
+import {publishedId, useDocumentPaneState} from './pane-state'
 import {InspectorButton} from './InspectorButton'
+import {ViewportButton} from './ViewportButton'
 import {ShareMenu, type StudioSharingClient} from './ShareMenu'
 import {type StudioConfigLoader, StudioLayer} from './StudioLayer'
 
@@ -56,6 +60,12 @@ export type PreviewBarOptions = {
    * server's `pageDocuments`; editors only. Default `false`.
    */
   documentPane?: boolean | DocumentPaneOptions
+  /**
+   * The Studio has the Visual Editor tool (`visualEditorTool()` from `sanity-preview-bar/studio`):
+   * **Edit** opens this page there, in the same tab (`true` for the default tool name, or
+   * `{tool}` for another). With `documentPane` as well, `E` still opens the pane on the site.
+   */
+  visualEditor?: boolean | {tool?: string}
 }
 
 /** `documentPane` settings. */
@@ -496,9 +506,43 @@ function useSearchShortcut(open: () => void, enabled: boolean) {
   }, [open, enabled])
 }
 
+/** The Visual Editor tool's pane state, sent by the tool (`editor-state`). */
+function useToolEditorOpen(enabled: boolean) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!enabled) return
+    function onMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin || event.source !== window.parent) return
+      if (
+        isPreviewBarMessage(event.data) &&
+        event.data.type === 'sanity-preview-bar:editor-state'
+      ) {
+        setOpen(event.data.open)
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [enabled])
+  return open
+}
+
+function sameSelection(a: PreviewBarSelection, b: PreviewBarSelection) {
+  return (
+    a.selected === b.selected && [...a.excluded].sort().join() === [...b.excluded].sort().join()
+  )
+}
+
 function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}) {
   const path = useHostPath()
   const position = useContext(BarPositionContext)
+  // Framed by the Studio's Visual Editor tool (`?context=tool`): the tool shows the pane and the
+  // viewport; the bar sends it documents to open instead of opening its own pane.
+  const [inTool] = useState(() => readPreviewBarContext(window.location.search) === 'tool')
+  const visualEditorTool =
+    !inTool && options.visualEditor
+      ? (typeof options.visualEditor === 'object' && options.visualEditor.tool) || 'visual-editor'
+      : null
+  const toolEditorOpen = useToolEditorOpen(inTool)
   // The bar's own width (it narrows beside the document pane). Theme media is [360, 600, …]:
   // button labels from 600px up, icon-only below so the bar fits; the centred grid from 1024px.
   const [barElement, setBarElement] = useState<HTMLElement | null>(null)
@@ -541,7 +585,13 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   // The page's document (from the Studio's Presentation route map), for the document pane.
   const [pageDocument, setPageDocument] = useState<{_id: string; _type: string} | null>(null)
   useEffect(() => {
-    if (!options.documentPane || !signedIn || !studioReady || !data.pageDocuments || path === null)
+    if (
+      !(options.documentPane || inTool) ||
+      !signedIn ||
+      !studioReady ||
+      !data.pageDocuments ||
+      path === null
+    )
       return
     let cancelled = false
     fetch(`${data.basePath}/document?${new URLSearchParams({path})}`)
@@ -555,10 +605,39 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     return () => {
       cancelled = true
     }
-  }, [options.documentPane, signedIn, studioReady, data.pageDocuments, data.basePath, path])
+  }, [options.documentPane, inTool, signedIn, studioReady, data.pageDocuments, data.basePath, path])
+
+  // In the tool the Studio's perspective follows the bar's, and the bar follows the Studio's
+  // (the pane's chips, the navbar's menu); equal selections are dropped, so neither echoes.
+  const perspectiveRef = useRef({perspective, releases: data.releases, switchPerspective})
+  perspectiveRef.current = {perspective, releases: data.releases, switchPerspective}
+  useEffect(() => {
+    if (!inTool) return
+    postToHost({
+      type: 'sanity-preview-bar:perspective',
+      selection: selectionOf(perspective, data.releases),
+    })
+  }, [inTool, perspective, data.releases])
+  useEffect(() => {
+    if (!inTool) return
+    function onMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin || event.source !== window.parent) return
+      if (
+        !isPreviewBarMessage(event.data) ||
+        event.data.type !== 'sanity-preview-bar:set-perspective'
+      )
+        return
+      const current = perspectiveRef.current
+      if (sameSelection(event.data.selection, selectionOf(current.perspective, current.releases)))
+        return
+      current.switchPerspective(event.data.selection)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [inTool])
 
   // The document pane (`pane-state.ts`): it follows the page and survives reloads for this tab.
-  const panelEnabled = Boolean(options.documentPane && options.studioConfig)
+  const panelEnabled = !inTool && Boolean(options.documentPane && options.studioConfig)
   const paneOptions: DocumentPaneOptions =
     typeof options.documentPane === 'object' ? options.documentPane : {}
   const pane = useDocumentPaneState({
@@ -594,6 +673,18 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     parameters?: Record<string, unknown>
   }) {
     setNewDocumentOpen(false)
+    if (inTool) {
+      postToHost({
+        type: 'sanity-preview-bar:open-document',
+        document: {
+          id: crypto.randomUUID(),
+          type: option.schemaType,
+          template: option.templateId,
+          templateParameters: option.parameters,
+        },
+      })
+      return
+    }
     if (!panelEnabled) {
       const params = `template=${encodeURIComponent(option.templateId)};type=${encodeURIComponent(option.schemaType)}`
       window.open(`${data.studioPath}/intent/create/${params}`, '_blank', 'noopener')
@@ -611,8 +702,28 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   function openPanel() {
     // The button unmounts under the pointer, with no mouseleave to release its tooltip overflow.
     setOverflow('edit-button', false)
+    if (inTool) {
+      if (!pageDocument) return
+      postToHost({
+        type: 'sanity-preview-bar:open-document',
+        document: {id: publishedId(pageDocument._id), type: pageDocument._type},
+      })
+      return
+    }
     pane.openPane()
   }
+  // The primary Edit button: the tool's pane, the site's pane, or a link to the tool.
+  const editAction: 'tool-pane' | 'site-pane' | 'tool-link' | null = !signedIn
+    ? null
+    : inTool
+      ? pageDocument && !toolEditorOpen
+        ? 'tool-pane'
+        : null
+      : visualEditorTool
+        ? 'tool-link'
+        : panelEnabled && pane.canOpen && !pane.open
+          ? 'site-pane'
+          : null
 
   function closeStudioSearch() {
     setSearchOpen(false)
@@ -627,6 +738,14 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     closeStudioSearch()
     if (href) {
       postToHost({type: 'sanity-preview-bar:navigate', href})
+      return
+    }
+    if (inTool) {
+      // No page for it: edit it in the tool's pane instead.
+      postToHost({
+        type: 'sanity-preview-bar:open-document',
+        document: {id: publishedId(item._id), type: item._type},
+      })
       return
     }
     // No page in this perspective (e.g. a draft-only or archived product): open it in the Studio.
@@ -715,6 +834,12 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
           </div>
           {/* Shopify's preview bar: copy link, the "…" menu, then the primary pill. */}
           <div className="preview-bar-end">
+            {inTool && (
+              <ViewportButton
+                onChange={(mode) => postToHost({type: 'sanity-preview-bar:viewport', mode})}
+                onHoverChange={(hovered) => setOverflow('viewport', hovered)}
+              />
+            )}
             <InspectorButton onHoverChange={(hovered) => setOverflow('inspector', hovered)} />
             {data.links && (
               <ShareMenu
@@ -726,19 +851,35 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
               />
             )}
             <MoreMenu setOverflow={setOverflow} />
-            {/* Hidden while the pane is open: the pane's own × closes it. */}
-            {panelEnabled && signedIn && pane.canOpen && !pane.open && (
+            {/* Hidden while a pane is open: the pane's own × closes it. */}
+            {editAction && (
               <span style={{display: 'flex'}} {...overflowWhileHovered('edit-button', setOverflow)}>
-                <StudioTooltip content="Edit this page" hotkeys={['E']}>
+                <StudioTooltip
+                  content="Edit this page"
+                  hotkeys={editAction === 'site-pane' ? ['E'] : undefined}
+                >
                   {/* The bar's primary pill (white), in place of Visual Editor. */}
-                  <Button
-                    mode="default"
-                    padding={2}
-                    icon={EditIcon}
-                    text={showLabels ? 'Edit' : undefined}
-                    aria-label="Edit this page"
-                    onClick={openPanel}
-                  />
+                  {editAction === 'tool-link' ? (
+                    <Button
+                      as="a"
+                      mode="default"
+                      padding={2}
+                      icon={EditIcon}
+                      text={showLabels ? 'Edit' : undefined}
+                      aria-label="Edit this page"
+                      href={`${data.studioPath}/${visualEditorTool}?${editorParams}`}
+                      target="_top"
+                    />
+                  ) : (
+                    <Button
+                      mode="default"
+                      padding={2}
+                      icon={EditIcon}
+                      text={showLabels ? 'Edit' : undefined}
+                      aria-label="Edit this page"
+                      onClick={openPanel}
+                    />
+                  )}
                 </StudioTooltip>
               </span>
             )}
@@ -750,7 +891,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
                 disabled={signingIn}
                 onClick={signIn}
               />
-            ) : panelEnabled ? null : (
+            ) : panelEnabled || inTool || visualEditorTool ? null : (
               <Button
                 as="a"
                 mode="default"

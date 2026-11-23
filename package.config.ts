@@ -8,6 +8,7 @@ const entries = {
   './sveltekit': 'sveltekit/index',
   './next': 'next/index',
   './next/client': 'next/client',
+  './studio': 'studio/index',
 }
 
 export default defineConfig({

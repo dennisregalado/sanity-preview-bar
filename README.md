@@ -21,6 +21,9 @@ Shopify theme preview, made of the Studio's own parts.
   document editor, in a pane on the right of the page: the pane Presentation shows, with the
   Published / Draft chips, the form, presence, comments and Publish. The page reflows beside it and
   stays clickable.
+- **Visual Editor tool (optional):** a Studio tool with Presentation's layout and the bar: the bar
+  on top, the site in the middle (desktop, or a 375px phone with Presentation's width animation),
+  and the Studio's document pane on the right. **Edit** on the site opens the page there.
 
 Everything is `@sanity/ui`, rendered in a same-origin iframe, so the bar's styles and the site's never
 meet, and **React and Sanity UI never load outside preview mode**. The site side is a small
@@ -282,7 +285,55 @@ mountPreviewBar(target, data, {
 - Anything that streams the form's value (a document-level `form.components.input`, like
   Presentation's) runs in the pane too, so a realtime preview updates as editors type.
 
-### 6. Short links
+### 6. Visual Editor tool (optional)
+
+A Studio tool with Presentation's layout and the preview bar on top. The site is framed in the
+middle at desktop width or as a 375px phone (the bar's phone button animates between the two), and
+the Studio's own document pane is on the right, following the page. Typing updates the framed page
+as fast as a normal preview tab: it reads like one (no stega), so the same live updates apply.
+
+```ts
+// sanity.config.ts
+import {visualEditorTool} from 'sanity-preview-bar/studio'
+
+plugins: [
+  visualEditorTool({
+    // Like Presentation's `previewUrl`: the first page, and the site's preview-mode route.
+    previewUrl: {initial: '/', previewMode: {enable: '/preview/enable'}},
+  }),
+]
+```
+
+On the bar page, `visualEditor: true` makes **Edit** open the current page in the tool (same tab):
+`mountPreviewBar(target, data, {studioConfig, visualEditor: true})`. With `documentPane` as well,
+`E` still opens the pane on the site.
+
+In your layout, the framed site answers the tool instead of mounting the host. If you switch on
+Presentation's stega and overlays when framed, check `isPreviewBarFrame()` first:
+
+```ts
+import {isPreviewBarFrame} from 'sanity-preview-bar'
+
+$effect(() => {
+  const frame = isPreviewBarFrame()
+  if (!data.preview || (window.self !== window.top && !frame)) return
+  import('sanity-preview-bar/host').then(({mountPreviewBarHost, mountPreviewBarFrame}) => {
+    const options = {refresh: refreshAll, navigate: goto}
+    host = frame ? mountPreviewBarFrame(options) : mountPreviewBarHost(options)
+  })
+})
+```
+
+- In the tool, the bar's **Edit** and **Create new document** open documents in the tool's pane,
+  search results without a page open there too, and the pane's × goes back, then closes.
+- Perspective goes both ways: the bar's switcher moves the Studio's perspective, and the pane's
+  chips or the Studio's own menu switch the bar and the site.
+- The tool enables preview mode as Presentation does (a preview secret through `previewMode.enable`)
+  and keeps `?preview=` in the Studio's URL in step with the page.
+- The bar and the site are framed on the site's origin, which has to be the Studio's: an embedded
+  Studio (as in the SvelteKit and Next.js setups above).
+
+### 7. Short links
 
 - Create a KV namespace and bind it (`wrangler.jsonc` → `kv_namespaces`), or pass any store with
   `get` and `put(key, value, ttlSeconds)`.

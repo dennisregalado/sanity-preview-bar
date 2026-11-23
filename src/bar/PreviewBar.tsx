@@ -472,7 +472,7 @@ function Brand({
           justify="center"
           style={{width: 25, height: 25, borderRadius: 3, overflow: 'hidden'}}
         >
-          {brand.logo && <Logo logo={brand.logo} />}
+          {brand.icon ?? (brand.logo && <Logo logo={brand.logo} />)}
         </Flex>
       </a>
       {showTitle && (
@@ -543,19 +543,25 @@ function useSearchShortcut(open: () => void, enabled: boolean) {
 }
 
 /** The Visual Editor tool's pane state, sent by the tool (`editor-state`). */
-function useToolEditorOpen(enabled: boolean) {
-  const [open, setOpen] = useState(false)
+type ToolEditorState = {open: boolean; available?: boolean}
+
+/**
+ * The Visual Editor tool's pane, as the tool reports it (`editor-state`): open or closed, and
+ * whether the page has a document to edit. Without `available`, the bar's own page lookup decides.
+ */
+function useToolEditor(enabled: boolean, initial?: ToolEditorState) {
+  const [state, setState] = useState<ToolEditorState>(initial ?? {open: false})
   useEffect(() => {
     if (!enabled) return
     function onMessage(message: PreviewBarMessage) {
       if (message.type === 'sanity-preview-bar:editor-state') {
-        setOpen(message.open)
+        setState({open: message.open, available: message.available})
       }
     }
     const unsubscribe = host.subscribe(onMessage)
     return () => unsubscribe()
   }, [enabled])
-  return open
+  return state
 }
 
 function sameSelection(a: PreviewBarSelection, b: PreviewBarSelection) {
@@ -568,11 +574,14 @@ function Bar({
   data,
   options,
   native,
+  editorState,
 }: {
   data: PreviewBarData
   options: PreviewBarOptions
   /** Rendered natively in a running Studio: its `sanity` module (`PreviewBarView`). */
   native?: unknown
+  /** The tool's pane state at mount, so the bar lays out for it from its first render. */
+  editorState?: ToolEditorState
 }) {
   const path = useHostPath()
   const position = useContext(BarPositionContext)
@@ -585,7 +594,8 @@ function Bar({
     !inTool && options.visualEditor
       ? (typeof options.visualEditor === 'object' && options.visualEditor.tool) || 'visual-editor'
       : null
-  const toolEditorOpen = useToolEditorOpen(inTool)
+  const toolEditor = useToolEditor(inTool, editorState)
+  const toolEditorOpen = toolEditor.open
   // The bar's own width (it narrows beside the document pane). Theme media is [360, 600, …]:
   // button labels from 600px up, icon-only below so the bar fits; the centred grid from 1024px.
   const [barElement, setBarElement] = useState<HTMLElement | null>(null)
@@ -616,10 +626,12 @@ function Bar({
   // Signed-in editors get Visual Editor and the Studio layer; everyone else gets Sign in.
   const {session, refresh: refreshSession} = useStudioSession(data.projectId)
   const [signingIn, setSigningIn] = useState(false)
-  const signedIn = session.status === 'signed-in'
+  // Inside the Studio (the Visual Editor) the editor is signed in and the Studio's context is
+  // there from the first render, so the bar lays out its editor controls at once.
+  const signedIn = native !== undefined || session.status === 'signed-in'
   // Signed-in editors search with the Studio's own popover once the Studio layer is ready;
   // everyone else keeps the bar's search.
-  const [studioReady, setStudioReady] = useState(false)
+  const [studioReady, setStudioReady] = useState(native !== undefined)
   // The editor's Studio client, for the share menu's "Share this preview" switch.
   const [studioSharing, setStudioSharing] = useState<StudioSharingClient | null>(null)
   const studioSearch = signedIn && studioReady && Boolean(data.search)
@@ -741,6 +753,11 @@ function Bar({
     // The button unmounts under the pointer, with no mouseleave to release its tooltip overflow.
     setOverflow('edit-button', false)
     if (inTool) {
+      // The tool knows the page's document when it says one is available.
+      if (toolEditor.available !== undefined) {
+        postToHost({type: 'sanity-preview-bar:open-editor'})
+        return
+      }
       if (!pageDocument) return
       postToHost({
         type: 'sanity-preview-bar:open-document',
@@ -754,7 +771,7 @@ function Bar({
   const editAction: 'tool-pane' | 'site-pane' | 'tool-link' | null = !signedIn
     ? null
     : inTool
-      ? pageDocument && !toolEditorOpen
+      ? (toolEditor.available ?? Boolean(pageDocument)) && !toolEditorOpen
         ? 'tool-pane'
         : null
       : visualEditorTool
@@ -1061,11 +1078,14 @@ export function PreviewBarView({
   host: toolHost,
   sanity,
   options = {},
+  editorState,
 }: {
   data: PreviewBarData
   host: BarHost
   sanity: unknown
   options?: PreviewBarOptions
+  /** The tool's pane state at mount; later changes come as `editor-state` messages. */
+  editorState?: ToolEditorState
 }) {
   // One bar per document: the tool's host for this one.
   host = toolHost
@@ -1075,7 +1095,7 @@ export function PreviewBarView({
       <BarDataContext.Provider value={data}>
         <BarPositionContext.Provider value="top">
           <style>{CARD_CSS}</style>
-          <Bar data={data} options={options} native={sanity} />
+          <Bar data={data} options={options} native={sanity} editorState={editorState} />
         </BarPositionContext.Provider>
       </BarDataContext.Provider>
     </ThemeProvider>

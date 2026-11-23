@@ -115,6 +115,8 @@ export function ShareMenu({
   const {basePath, studioPath} = useBarData()
   const place = useBarPlacement()
   const [sharing, setSharing] = useState(initialSharing)
+  // In the Visual Editor the sharing state arrives after the bar mounts.
+  useEffect(() => setSharing(initialSharing), [initialSharing])
   const [open, setOpen] = useState(false)
   const [toggling, setToggling] = useState<'enabling' | 'disabling' | null>(null)
   const [minting, setMinting] = useState(false)

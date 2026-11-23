@@ -7,8 +7,9 @@
  * The tool is the bar's host, through the same `sanity-preview-bar:*` messages the site's host
  * uses (in process, no frame), and talks to the framed site's `mountPreviewBarFrame`: paths,
  * refreshes after a perspective switch, navigation from search. The site is framed on its origin,
- * which must be this Studio's origin (an embedded Studio); the bar's data comes from its
- * `/preview-bar/data` route.
+ * which must be this Studio's origin (an embedded Studio). The bar's data comes from the Studio
+ * (`useStudioBarData`), so it renders with the tool; the site is only asked to store the
+ * perspective cookie, mint share links and resolve search results.
  *
  * The tool's own layout uses the Studio's CSS variables and plain elements.
  */
@@ -25,7 +26,8 @@ import {useRouter} from 'sanity/router'
 import {DocumentPane, PaneLayout, PaneRouterContext, StructureToolProvider} from 'sanity/structure'
 import {DocumentPanel, type PanelEntry, type StructureModule} from '../bar/DocumentPanel'
 import {type BarHost, PreviewBarView} from '../bar/PreviewBar'
-import type {PreviewBarData} from '../core/data'
+import {useStudioBarData} from './studio-bar-data'
+import {findPageDocumentRule, type PageDocumentRule} from '../core/page-documents'
 import {
   isPreviewBarMessage,
   PREVIEW_BAR_FRAME_NAME,
@@ -51,6 +53,16 @@ export type VisualEditorToolOptions = {
   }
   /** The bar's route on the site. Default `/preview-bar`. */
   barPath?: string
+  /**
+   * Presentation's `resolve.mainDocuments` rules (pass the same list): which document a page shows,
+   * resolved here with the editor's client. Without them, the site's `/preview-bar/document` route
+   * is asked.
+   */
+  mainDocuments?: PageDocumentRule[]
+  /** The site serves short preview links (`links` in `createPreviewBar`). Default `true`. */
+  links?: boolean
+  /** Document types the bar's Studio search opens filtered to. Default: all types. */
+  searchTypes?: string[]
   /** The document pane's width. Default 420. */
   paneWidth?: number
   /**
@@ -99,80 +111,51 @@ function Bone({
   return <div className="preview-bar-skeleton" style={{width, height, flex: 'none', ...style}} />
 }
 
-/** The tool's layout in skeleton form: the bar, the page and the pane column. */
-function ToolSkeleton({paneWidth}: {paneWidth: number}) {
+/** The page area until the framed site reports its first page. */
+function PageSkeleton() {
   return (
     <div
       aria-busy="true"
-      aria-label="Loading the Visual Editor"
+      aria-label="Loading the page"
       style={{
         position: 'absolute',
         inset: 0,
-        zIndex: 20,
         display: 'flex',
-        background: 'var(--card-bg-color)',
+        flexDirection: 'column',
+        gap: 16,
+        padding: 24,
+        background: 'var(--card-muted-bg-color, var(--card-bg-color))',
       }}
     >
       <style>{SKELETON_CSS}</style>
-      <div style={{display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0}}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            flex: 'none',
-            height: PREVIEW_BAR_HEIGHT,
-            padding: '0 12px',
-            borderBottom: '1px solid var(--card-border-color)',
-          }}
-        >
-          <Bone width={25} height={25} />
-          <Bone width={110} height={13} />
-          <Bone width={96} height={27} style={{borderRadius: 14}} />
-          <div style={{flex: 1}} />
-          <Bone width={21} height={21} />
-          <Bone width={21} height={21} />
-          <Bone width={21} height={21} />
-        </div>
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 16,
-            padding: 24,
-            background: 'var(--card-muted-bg-color, var(--card-bg-color))',
-          }}
-        >
-          <Bone width="100%" height={56} />
-          <Bone width="100%" height="45%" />
-          <Bone width="40%" height={20} />
-          <Bone width="65%" height={20} />
-        </div>
+      <Bone width="100%" height={56} />
+      <Bone width="100%" height="45%" />
+      <Bone width="40%" height={20} />
+      <Bone width="65%" height={20} />
+    </div>
+  )
+}
+
+/** The pane column until the page's document is known. */
+function PaneSkeleton() {
+  return (
+    <div
+      aria-busy="true"
+      aria-label="Loading the document"
+      style={{display: 'flex', flexDirection: 'column', gap: 20, padding: '14px 16px'}}
+    >
+      <style>{SKELETON_CSS}</style>
+      <div style={{display: 'flex', gap: 8}}>
+        <Bone width={88} height={25} style={{borderRadius: 13}} />
+        <Bone width={60} height={25} style={{borderRadius: 13}} />
       </div>
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 20,
-          flex: 'none',
-          width: paneWidth,
-          padding: '14px 16px',
-          borderLeft: '1px solid var(--card-border-color)',
-        }}
-      >
-        <div style={{display: 'flex', gap: 8}}>
-          <Bone width={88} height={25} style={{borderRadius: 13}} />
-          <Bone width={60} height={25} style={{borderRadius: 13}} />
-        </div>
-        <Bone width="45%" height={22} />
-        <Bone width="30%" height={13} />
-        <Bone width="100%" height={36} />
-        <Bone width="30%" height={13} />
-        <Bone width="100%" height={120} />
-        <Bone width="30%" height={13} />
-        <Bone width="100%" height={36} />
-      </div>
+      <Bone width="45%" height={22} />
+      <Bone width="30%" height={13} />
+      <Bone width="100%" height={36} />
+      <Bone width="30%" height={13} />
+      <Bone width="100%" height={120} />
+      <Bone width="30%" height={13} />
+      <Bone width="100%" height={36} />
     </div>
   )
 }
@@ -201,27 +184,53 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // The bar's data, from its route (404 outside preview mode).
-  const [barData, setBarData] = useState<PreviewBarData | null>(null)
-  const fetchBarData = useCallback(async () => {
-    const response = await fetch(`${barPath}/data`, {credentials: 'same-origin'})
-    return response.ok ? ((await response.json()) as PreviewBarData) : null
-  }, [barPath])
+  // The bar's data, from the Studio: it renders with the tool.
+  const barData = useStudioBarData({
+    barPath,
+    links: options.links ?? true,
+    searchTypes: options.searchTypes,
+  })
 
-  // Fast start: when the editor is already in preview mode (the bar's data answers), the bar
-  // renders at once and the site loads directly. Otherwise preview mode is enabled as Presentation
-  // does it: a fresh preview secret through the site's route, and the bar follows the frame.
+  // Perspective, both ways: the bar's switches move the Studio's sticky params; the Studio's own
+  // switches (the pane's chips, the navbar menu) go to the bar, which stores them and refreshes.
+  const {selectedPerspectiveName, excludedPerspectives, perspectiveStack} = usePerspective()
+  const studioSelection = useMemo<PreviewBarSelection>(
+    () => ({selected: selectedPerspectiveName ?? 'drafts', excluded: excludedPerspectives ?? []}),
+    [selectedPerspectiveName, excludedPerspectives],
+  )
+  const studioSelectionRef = useRef(studioSelection)
+  studioSelectionRef.current = studioSelection
+
+  /** Stores a perspective in the site's cookie; `false` outside preview mode (the route 404s). */
+  const storePerspective = useCallback(
+    async (selection: PreviewBarSelection) => {
+      const response = await fetch(`${barPath}/perspective`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'content-type': 'application/json'},
+        body: JSON.stringify(selection),
+      })
+      return response.ok
+    },
+    [barPath],
+  )
+
+  // Start: store the Studio's perspective for the site. That also tells whether the editor is in
+  // preview mode already (the route answers only then): if so, the site loads directly; otherwise
+  // preview mode is enabled as Presentation does it, through a preview secret, and the perspective
+  // is stored once the site is in.
   const client = useClient({apiVersion: '2025-02-19'})
   const currentUser = useCurrentUser()
   const [frameSrc, setFrameSrc] = useState<string | null>(null)
   const [frameError, setFrameError] = useState<string | null>(null)
+  const perspectiveStored = useRef(false)
   useEffect(() => {
     let cancelled = false
     async function start() {
-      const data = await fetchBarData().catch(() => null)
+      const stored = await storePerspective(studioSelectionRef.current).catch(() => false)
       if (cancelled) return
-      if (data) {
-        setBarData(data)
+      if (stored) {
+        perspectiveStored.current = true
         setFrameSrc(new URL(initialPath, origin).toString())
         return
       }
@@ -277,32 +286,52 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     [],
   )
 
-  // First visit (no preview cookie yet): the bar's data once the framed site is in preview mode.
-  const pathKnown = path !== null
-  useEffect(() => {
-    if (!pathKnown || barData) return
-    let cancelled = false
-    fetchBarData()
-      .then((data) => {
-        if (!cancelled && data) setBarData(data)
-      })
-      .catch((error: unknown) => console.error('sanity-preview-bar: could not load the bar', error))
-    return () => {
-      cancelled = true
-    }
-  }, [pathKnown, barData, fetchBarData])
   const postToSite = useCallback(
     (message: PreviewBarMessage) => siteFrame.current?.contentWindow?.postMessage(message, origin),
     [origin],
   )
 
-  // The page's main document, from the bar's route (Presentation's `mainDocuments` rules).
+  // Enabled through a secret: store the perspective once the site is in, then refresh it.
+  const pathKnown = path !== null
   useEffect(() => {
-    if (path === null) return
+    if (!pathKnown || perspectiveStored.current) return
+    perspectiveStored.current = true
+    storePerspective(studioSelectionRef.current)
+      .then((stored) => {
+        if (stored) postToSite({type: 'sanity-preview-bar:refresh'})
+      })
+      .catch(() => {})
+  }, [pathKnown, storePerspective, postToSite])
+
+  // The page's main document: Presentation's `mainDocuments` rules resolved here with the editor's
+  // client in the Studio's perspective, or the site's route without them.
+  const mainDocuments = options.mainDocuments
+  const stackKey = JSON.stringify(perspectiveStack)
+  // The first page is known before the site loads (`?preview=`), so the pane starts with it.
+  const documentPath = path ?? initialPath
+  useEffect(() => {
     let cancelled = false
-    fetch(`${barPath}/document?${new URLSearchParams({path})}`, {credentials: 'same-origin'})
-      .then((response) => (response.ok ? response.json() : {document: null}))
-      .then(({document}: {document: {_id: string; _type: string} | null}) => {
+    let lookup: Promise<{_id: string; _type: string} | null>
+    if (mainDocuments) {
+      const rule = findPageDocumentRule(mainDocuments, documentPath)
+      lookup = rule
+        ? client
+            .withConfig({perspective: perspectiveStack as never})
+            .fetch<{_id: string; _type: string} | null>(
+              `*[${rule.filter}][0]{_id, _type}`,
+              rule.params,
+              {tag: 'preview-bar.main-document'},
+            )
+        : Promise.resolve(null)
+    } else {
+      lookup = fetch(`${barPath}/document?${new URLSearchParams({path: documentPath})}`, {
+        credentials: 'same-origin',
+      })
+        .then((response) => (response.ok ? response.json() : {document: null}))
+        .then(({document}: {document: {_id: string; _type: string} | null}) => document)
+    }
+    lookup
+      .then((document) => {
         if (!cancelled)
           setMainDocument(document ? {id: publishedId(document._id), type: document._type} : null)
       })
@@ -315,7 +344,9 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     return () => {
       cancelled = true
     }
-  }, [path, barPath])
+    // `perspectiveStack` by value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentPath, barPath, mainDocuments, client, stackKey])
 
   // The pane follows the page while it's wanted.
   useEffect(() => {
@@ -329,22 +360,23 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
   }, [mainDocument, paneWanted])
 
   const paneOpen = stack.length > 0
+  // The pane's column shows while its document loads too, so the bar lays out for it from the start.
+  const paneLoading = paneWanted && !mainDocumentLoaded
+  const columnOpen = paneOpen || paneLoading
+  const editorAvailable = mainDocument !== null
   useEffect(() => {
-    postToBar({type: 'sanity-preview-bar:editor-state', open: paneOpen})
-  }, [paneOpen, postToBar])
+    postToBar({
+      type: 'sanity-preview-bar:editor-state',
+      open: columnOpen,
+      available: editorAvailable,
+    })
+  }, [columnOpen, editorAvailable, postToBar])
 
   const changeStack = useCallback((next: PanelEntry[]) => {
     if (next.length === 0) setPaneWanted(false)
     setStack(next)
   }, [])
 
-  // Perspective, both ways: the bar's switches move the Studio's sticky params; the Studio's own
-  // switches (the pane's chips, the navbar menu) go to the bar, which stores them and refreshes.
-  const {selectedPerspectiveName, excludedPerspectives} = usePerspective()
-  const studioSelection = useMemo<PreviewBarSelection>(
-    () => ({selected: selectedPerspectiveName ?? 'drafts', excluded: excludedPerspectives ?? []}),
-    [selectedPerspectiveName, excludedPerspectives],
-  )
   const lastBarSelection = useRef<PreviewBarSelection | null>(null)
   useEffect(() => {
     const fromBar = lastBarSelection.current
@@ -361,17 +393,17 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
   }, [])
 
   // Messages from the bar (in process) and the framed site (`postMessage`).
-  const latest = useRef({path, paneOpen, studioSelection, mainDocument})
-  latest.current = {path, paneOpen, studioSelection, mainDocument}
+  const latest = useRef({path, columnOpen, studioSelection, mainDocument})
+  latest.current = {path, columnOpen, studioSelection, mainDocument}
   pathRef.current = path
   handleBarMessage.current = (message) => {
     switch (message.type) {
       case 'sanity-preview-bar:ready':
         // After the bar's other listeners subscribe (the same commit's effects run first).
         queueMicrotask(() => {
-          const {path: current, paneOpen: open} = latest.current
+          const {path: current, columnOpen: open, mainDocument: main} = latest.current
           if (current) postToBar({type: 'sanity-preview-bar:path', path: current})
-          postToBar({type: 'sanity-preview-bar:editor-state', open})
+          postToBar({type: 'sanity-preview-bar:editor-state', open, available: main !== null})
         })
         break
       case 'sanity-preview-bar:refresh':
@@ -410,6 +442,13 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
         } as never)
         break
       }
+      case 'sanity-preview-bar:open-editor': {
+        const main = latest.current.mainDocument
+        if (!main) break
+        setPaneWanted(true)
+        setStack([{id: main.id, type: main.type, params: {}}])
+        break
+      }
       case 'sanity-preview-bar:studio-home':
         // The workspace's root, through the Studio's router (its default tool), no reload.
         routerRef.current.navigateUrl({path: basePathRef.current || '/'})
@@ -445,15 +484,10 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     return () => window.removeEventListener('message', onMessage)
   }, [origin, postToBar])
 
-  // A skeleton of the whole tool until the bar, the page and the pane's document are all in, so
-  // they appear at once instead of shifting the layout one by one (at most 10s).
-  const [timedOut, setTimedOut] = useState(false)
-  useEffect(() => {
-    const timer = window.setTimeout(() => setTimedOut(true), 10_000)
-    return () => window.clearTimeout(timer)
-  }, [])
-  const ready = Boolean(barData) && path !== null && mainDocumentLoaded
-  const showSkeleton = !ready && !timedOut && !frameError
+  // Everything shows as soon as it's ready: the bar at once (Studio data), the page and the pane
+  // each behind a skeleton until theirs arrives. The pane's column is held from the start, so the
+  // page doesn't shift when the document opens.
+  const pageLoading = path === null && !frameError
 
   // Like the bar on the site: the document pane runs top to bottom on the right, and the bar sits
   // beside it, above the page.
@@ -469,7 +503,12 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     >
       <div style={{display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0}}>
         <div style={{position: 'relative', flex: 'none', height: PREVIEW_BAR_HEIGHT}}>
-          {barData && <PreviewBarView data={barData} host={barHost} sanity={sanityModule} />}
+          <PreviewBarView
+            data={barData}
+            host={barHost}
+            sanity={sanityModule}
+            editorState={{open: columnOpen, available: editorAvailable}}
+          />
         </div>
         <div
           style={{
@@ -493,12 +532,16 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
               style={{
                 display: 'block',
                 flex: 'none',
+                // Shopify's phone frame: a 4px gap above and below (square corners).
                 width: viewport === 'mobile' ? MOBILE_WIDTH : '100%',
-                height: '100%',
+                height: viewport === 'mobile' ? 'calc(100% - 8px)' : '100%',
+                margin: viewport === 'mobile' ? '4px 0' : 0,
                 border: 0,
                 background: 'var(--card-bg-color)',
                 boxShadow: viewport === 'mobile' ? '0 0 0 1px var(--card-border-color)' : 'none',
-                transition: 'width 300ms cubic-bezier(0.2, 0, 0, 1)',
+                transition: ['width', 'height', 'margin']
+                  .map((property) => `${property} 300ms cubic-bezier(0.2, 0, 0, 1)`)
+                  .join(', '),
               }}
             />
           ) : (
@@ -513,9 +556,10 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
               {frameError}
             </div>
           )}
+          {pageLoading && <PageSkeleton />}
         </div>
       </div>
-      {paneOpen && (
+      {(paneOpen || paneLoading) && (
         <div
           data-preview-bar-panel=""
           style={{
@@ -528,18 +572,21 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
             borderLeft: '1px solid var(--card-border-color)',
           }}
         >
-          <PresentationDocumentContext.Provider value={NO_LOCATIONS as never}>
-            <DocumentPanel
-              structure={structure}
-              stack={stack}
-              onChange={changeStack}
-              onIntent={onIntent}
-              fallback={null}
-            />
-          </PresentationDocumentContext.Provider>
+          {paneOpen ? (
+            <PresentationDocumentContext.Provider value={NO_LOCATIONS as never}>
+              <DocumentPanel
+                structure={structure}
+                stack={stack}
+                onChange={changeStack}
+                onIntent={onIntent}
+                fallback={<PaneSkeleton />}
+              />
+            </PresentationDocumentContext.Provider>
+          ) : (
+            <PaneSkeleton />
+          )}
         </div>
       )}
-      {showSkeleton && <ToolSkeleton paneWidth={paneWidth} />}
     </div>
   )
 }

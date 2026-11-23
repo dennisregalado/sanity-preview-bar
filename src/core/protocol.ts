@@ -97,8 +97,13 @@ export type PreviewBarMessage =
   | {type: 'sanity-preview-bar:navigate'; href: string}
   /** Bar → Visual Editor tool: open this document in the tool's pane (Edit, Create new document). */
   | {type: 'sanity-preview-bar:open-document'; document: PreviewBarDocument}
-  /** Visual Editor tool → bar: the tool's pane opened or closed (Edit hides while it's open). */
-  | {type: 'sanity-preview-bar:editor-state'; open: boolean}
+  /**
+   * Visual Editor tool → bar: the tool's pane opened or closed (Edit hides while it's open), and
+   * whether the page has a document to edit (Edit shows only then).
+   */
+  | {type: 'sanity-preview-bar:editor-state'; open: boolean; available?: boolean}
+  /** Bar → Visual Editor tool: Edit was clicked; open the page's document in the pane. */
+  | {type: 'sanity-preview-bar:open-editor'}
   /** Bar → Visual Editor tool: show the site at desktop width or as a 375px phone. */
   | {type: 'sanity-preview-bar:viewport'; mode: 'desktop' | 'mobile'}
   /** Bar → Visual Editor tool: the bar's perspective changed; the Studio follows it. */
@@ -147,6 +152,7 @@ export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
     case 'sanity-preview-bar:search':
     case 'sanity-preview-bar:pane':
     case 'sanity-preview-bar:studio-home':
+    case 'sanity-preview-bar:open-editor':
       return true
     case 'sanity-preview-bar:navigate':
       return 'href' in data && isRootRelative(data.href)
@@ -170,7 +176,13 @@ export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
     case 'sanity-preview-bar:open-document':
       return 'document' in data && isDocument(data.document)
     case 'sanity-preview-bar:editor-state':
-      return 'open' in data && typeof data.open === 'boolean'
+      return (
+        'open' in data &&
+        typeof data.open === 'boolean' &&
+        (!('available' in data) ||
+          data.available === undefined ||
+          typeof data.available === 'boolean')
+      )
     case 'sanity-preview-bar:viewport':
       return 'mode' in data && (data.mode === 'desktop' || data.mode === 'mobile')
     case 'sanity-preview-bar:perspective':

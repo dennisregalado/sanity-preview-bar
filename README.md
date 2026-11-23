@@ -293,6 +293,10 @@ Studio, with its context) sits above the framed site, at desktop width or as a 3
 bar's phone button animates between the two). Typing updates the framed page
 as fast as a normal preview tab: it reads like one (no stega), so the same live updates apply.
 
+The bar's data comes from the Studio, not the site: the workspace (title, icon, project), the live
+releases, the Studio's perspective and Presentation's sharing state. So the bar renders with the
+tool, like Presentation's toolbar; the page and the pane each show a skeleton until theirs is in.
+
 ```ts
 // sanity.config.ts
 import {visualEditorTool} from 'sanity-preview-bar/studio'
@@ -301,16 +305,12 @@ plugins: [
   visualEditorTool({
     // Like Presentation's `previewUrl`: the first page, and the site's preview-mode route.
     previewUrl: {initial: '/', previewMode: {enable: '/preview/enable'}},
+    // Presentation's `resolve.mainDocuments` (the same list): the page's document for the pane.
+    mainDocuments: MAIN_DOCUMENTS,
+    // Optional: the types the bar's search opens filtered to; `links: false` without short links.
+    searchTypes: ['page', 'product'],
   }),
 ]
-```
-
-The tool reads the bar's data from a JSON route next to the bar's (Next.js's catch-all handler
-already serves it):
-
-```ts
-// src/routes/preview-bar/data/+server.ts
-export const GET = previewBar.data
 ```
 
 On the bar page, `visualEditor: true` makes **Edit** open the current page in the tool (same tab):

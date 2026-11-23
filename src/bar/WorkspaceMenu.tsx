@@ -109,7 +109,7 @@ export function WorkspaceMenu({
               <Menu padding={0} style={{maxWidth: 350, minWidth: 250, overflowY: 'hidden'}}>
                 <Flex direction="column" paddingX={4} paddingTop={4} paddingBottom={4}>
                   <Flex align="center">
-                    {brand.logo && <Logo logo={brand.logo} size="large" />}
+                    {brand.icon ?? (brand.logo && <Logo logo={brand.logo} size="large" />)}
                     <Flex direction="column" gap={2} marginLeft={2}>
                       {brand.project && (
                         <Text size={0} as="div">

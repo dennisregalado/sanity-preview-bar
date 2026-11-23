@@ -41,8 +41,19 @@ export function WorkspaceMenu({
       onBlur={() => onHoverChange(false)}
     >
       <StudioTooltip content="Select workspace" disabled={open}>
-        {/* A span around `MenuButton`, which clones its `button` element to attach its ref. */}
-        <span style={{display: 'flex', minWidth: 0}}>
+        {/* A span around `MenuButton`, which clones its `button` element to attach its ref. It
+            also keeps the bar's foreground colour: the Studio's ui5 bleed button shows the title
+            in full foreground (white in dark mode), where Sanity UI v4's bleed button redefines
+            `--card-fg-color` to its muted shade inside the button. */}
+        <span
+          style={
+            {
+              display: 'flex',
+              minWidth: 0,
+              '--preview-bar-workspace-fg': 'var(--card-fg-color)',
+            } as CSSProperties
+          }
+        >
           <MenuButton
             id="workspace-menu"
             onOpen={() => {
@@ -67,7 +78,13 @@ export function WorkspaceMenu({
               <Button mode="bleed" padding={2} width="fill">
                 <Flex align="center" gap={2}>
                   <Box style={{minWidth: 0}}>
-                    <Text size={1} weight="medium" textOverflow="ellipsis" as="div">
+                    <Text
+                      size={1}
+                      weight="medium"
+                      textOverflow="ellipsis"
+                      as="div"
+                      style={{color: 'var(--preview-bar-workspace-fg)'}}
+                    >
                       {brand.title}
                     </Text>
                   </Box>
@@ -80,7 +97,7 @@ export function WorkspaceMenu({
                       fontSize: 21,
                       lineHeight: 0,
                       margin: '-0.375rem',
-                      color: 'var(--card-fg-color)',
+                      color: 'var(--preview-bar-workspace-fg)',
                     }}
                   >
                     <ChevronDownIcon style={{display: 'block'}} />

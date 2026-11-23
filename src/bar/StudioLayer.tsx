@@ -28,6 +28,7 @@ import {
 } from 'react'
 import {PREVIEW_BAR_HEIGHT, type PaneSide} from '../core/protocol'
 import {DocumentPanel, type PanelEntry, type StructureModule} from './DocumentPanel'
+import {NewDocumentMenu, type NewDocumentOption, type NewDocumentSanity} from './NewDocumentMenu'
 
 /** Loads the project's Studio config (`defineConfig(...)`), e.g. from `sanity.config.ts`. */
 export type StudioConfigLoader = () => Promise<unknown>
@@ -440,6 +441,7 @@ export function StudioLayer({
   perspective,
   onPerspectiveChange,
   onSharingClient,
+  newDocument,
   panel,
   allFieldsGroup = true,
   search,
@@ -455,6 +457,13 @@ export function StudioLayer({
    * "View draft"): the bar switches the site to match.
    */
   onPerspectiveChange?: (selection: {selected: string; excluded: string[]}) => void
+  /** The "Create new document" popover, anchored to the bar's "+" button. */
+  newDocument?: {
+    open: boolean
+    anchor: HTMLElement | null
+    onClose: () => void
+    onSelect: (option: NewDocumentOption) => void
+  }
   /** Receives the editor's Studio client and user ID, for toggling Presentation's sharing. */
   onSharingClient?: (studio: {client: unknown; userId?: string} | null) => void
   /** The document pane, when the bar offers one. */
@@ -550,6 +559,13 @@ export function StudioLayer({
       unstable_noAuthBoundary
     >
       {onSharingClient && <SharingClientBridge sanity={sanity} onClient={onSharingClient} />}
+      {newDocument?.open && (
+        <NewDocumentMenu
+          sanity={sanity as unknown as NewDocumentSanity}
+          studioPath={studioPath}
+          {...newDocument}
+        />
+      )}
       {search && (
         <SearchProvider>
           {search.open && <TypeFilterPreset sanity={sanity} types={search.types} />}

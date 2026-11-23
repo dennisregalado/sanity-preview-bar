@@ -1,6 +1,7 @@
 // Loaded only by the bar's route, inside the host's iframe. The stylesheet and styled-components'
 // <style> tags land in the iframe's document, never in the site's.
 import '@sanity/ui/styles.css'
+import AddIcon from '@sanity/icons/Add'
 import EditIcon from '@sanity/icons/Edit'
 import EllipsisHorizontalIcon from '@sanity/icons/EllipsisHorizontal'
 import EyeClosedIcon from '@sanity/icons/EyeClosed'
@@ -35,6 +36,7 @@ import {StudioTooltip} from './StudioTooltip'
 import {WorkspaceMenu} from './WorkspaceMenu'
 import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
 import {useDocumentPaneState} from './pane-state'
+import {InspectorButton} from './InspectorButton'
 import {ShareMenu, type StudioSharingClient} from './ShareMenu'
 import {type StudioConfigLoader, StudioLayer} from './StudioLayer'
 
@@ -71,20 +73,19 @@ export type {PreviewBarData}
 
 const theme = buildTheme()
 
-// Sanity UI's space scale has no 10px step: 10px inline padding, 20px from 1024px up. Breakpoints
+// Padding is the Studio navbar's (`padding={3}`, 12px on every side). Breakpoints
 // follow the bar's own width (`.preview-bar-wide`), not the viewport's: beside the document pane
 // the bar is only as wide as the page.
 const CARD_CSS = `
-.preview-bar-card { padding-inline: 10px; }
 /* HomeButton's StyledCard: radius 2 (3px), no underline, focus ring only for keyboard focus. */
 /* The active search result (keyboard or pointer), like the Studio's CommandList active item. */
 .preview-search-row[data-active] { background-color: var(--card-muted-bg-color); }
 .preview-bar-home { display: flex; border-radius: 3px; outline: none; text-decoration: none; }
 .preview-bar-home:focus-visible { box-shadow: 0 0 0 1px var(--card-bg-color), 0 0 0 3px var(--card-focus-ring-color); }
-.preview-bar-wide { padding-inline: 20px; }
-/* Brand, perspective switcher, actions. Below 1024px (tablet and phone) a row with the switcher
-   after the brand; from 1024px a 1fr / auto / 1fr grid, so the switcher sits on the bar's centre
-   whatever the side groups measure. 4px gaps, the Studio navbar's spacing. */
+/* Brand, perspective switcher, actions. Below 1024px (tablet and phone), or with the document pane
+   open, a row with the switcher after the brand; otherwise a 1fr / auto / 1fr grid, so the
+   switcher sits on the bar's centre whatever the side groups measure. 4px gaps, the Studio
+   navbar's spacing. */
 .preview-bar-layout { display: flex; align-items: center; gap: 4px; }
 .preview-bar-start { display: flex; align-items: center; gap: 4px; flex: none; }
 .preview-bar-center { display: flex; align-items: center; flex: 1; min-width: 0; }
@@ -396,10 +397,17 @@ function MoreMenu({setOverflow}: {setOverflow: SetOverflow}) {
 function Brand({
   showTitle,
   onSearch,
+  newDocument,
   setOverflow,
 }: {
   showTitle: boolean
   onSearch: () => void
+  /** The Studio navbar's "Create new document" button (signed-in editors). */
+  newDocument: {
+    open: boolean
+    onToggle: () => void
+    ref: (element: HTMLElement | null) => void
+  } | null
   setOverflow: SetOverflow
 }) {
   const {brand, studioPath, search} = useBarData()
@@ -425,6 +433,27 @@ function Brand({
           onOpenChange={(open) => setOverflow('workspace-menu', open)}
           onHoverChange={(hovered) => setOverflow('workspace-button', hovered)}
         />
+      )}
+      {/* The Studio navbar's "Create new document" button, before search. */}
+      {newDocument && (
+        <span
+          style={{display: 'flex'}}
+          {...overflowWhileHovered('new-document-button', setOverflow)}
+        >
+          <StudioTooltip content="Create new document" disabled={newDocument.open}>
+            <Button
+              ref={newDocument.ref}
+              mode="bleed"
+              padding={2}
+              icon={AddIcon}
+              selected={newDocument.open}
+              aria-label="Create new document"
+              aria-haspopup="true"
+              aria-expanded={newDocument.open}
+              onClick={newDocument.onToggle}
+            />
+          </StudioTooltip>
+        </span>
       )}
       {/* The Studio navbar's search button, with its "Search ⌘K" tooltip. */}
       {search && (
@@ -549,6 +578,36 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   }, [pane.open, pane.width, paneSide])
   usePaneOverlays(pane.open, pane.width, paneSide, setOverflow)
   usePaneShortcut(pane.toggle, panelEnabled && signedIn && (pane.open || pane.canOpen))
+  // "Create new document": the Studio's popover, then the new document in the pane.
+  const [newDocumentOpen, setNewDocumentOpen] = useState(false)
+  const [newDocumentAnchor, setNewDocumentAnchor] = useState<HTMLElement | null>(null)
+  function toggleNewDocument() {
+    setOverflow('new-document-button', false)
+    setNewDocumentOpen((open) => !open)
+  }
+  useEffect(() => {
+    setOverflow('new-document', newDocumentOpen)
+  }, [newDocumentOpen, setOverflow])
+  function createDocument(option: {
+    templateId: string
+    schemaType: string
+    parameters?: Record<string, unknown>
+  }) {
+    setNewDocumentOpen(false)
+    if (!panelEnabled) {
+      const params = `template=${encodeURIComponent(option.templateId)};type=${encodeURIComponent(option.schemaType)}`
+      window.open(`${data.studioPath}/intent/create/${params}`, '_blank', 'noopener')
+      return
+    }
+    pane.openDocument({
+      id: crypto.randomUUID(),
+      type: option.schemaType,
+      params: {},
+      template: option.templateId,
+      templateParameters: option.parameters,
+    })
+  }
+
   function openPanel() {
     // The button unmounts under the pointer, with no mouseleave to release its tooltip overflow.
     setOverflow('edit-button', false)
@@ -612,14 +671,16 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         tone={perspectiveTone(perspective, data.releases)}
         as="nav"
         aria-label="Sanity preview"
-        // The Studio navbar's `RootCard padding={3}`, so both bars are the same height. Inline
-        // padding comes from `.preview-bar-card` (10px, 20px from 1024px).
+        // The Studio navbar's `RootCard padding={3}`: the same height and the same 12px sides.
         padding={3}
         // Only the edge facing the page: the bar spans the viewport, so other borders read as a box.
         borderTop={position === 'bottom'}
         borderBottom={position === 'top'}
         ref={setBarElement}
-        className={barWidth >= 1024 ? 'preview-bar-card preview-bar-wide' : 'preview-bar-card'}
+        // The switcher centres on wide bars; with the document pane open it sits after the brand.
+        className={
+          barWidth >= 1024 && !pane.open ? 'preview-bar-card preview-bar-wide' : 'preview-bar-card'
+        }
         // Beside the open pane the bar narrows to the page's width, on the pane's other side.
         style={
           barBesidePanel
@@ -632,7 +693,16 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
       >
         <div className="preview-bar-layout">
           <div className="preview-bar-start">
-            <Brand showTitle={showLabels} onSearch={openSearch} setOverflow={setOverflow} />
+            <Brand
+              showTitle={showLabels}
+              onSearch={openSearch}
+              newDocument={
+                signedIn && studioReady
+                  ? {open: newDocumentOpen, onToggle: toggleNewDocument, ref: setNewDocumentAnchor}
+                  : null
+              }
+              setOverflow={setOverflow}
+            />
           </div>
           <div className="preview-bar-center">
             <PerspectiveMenu
@@ -645,6 +715,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
           </div>
           {/* Shopify's preview bar: copy link, the "…" menu, then the primary pill. */}
           <div className="preview-bar-end">
+            <InspectorButton onHoverChange={(hovered) => setOverflow('inspector', hovered)} />
             {data.links && (
               <ShareMenu
                 sharing={data.sharing}
@@ -704,6 +775,12 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
             perspective={studioPerspective}
             onPerspectiveChange={switchPerspective}
             onSharingClient={setStudioSharing}
+            newDocument={{
+              open: newDocumentOpen,
+              anchor: newDocumentAnchor,
+              onClose: () => setNewDocumentOpen(false),
+              onSelect: createDocument,
+            }}
             allFieldsGroup={paneOptions.allFieldsGroup !== false}
             panel={
               panelEnabled

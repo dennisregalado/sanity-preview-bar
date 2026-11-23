@@ -31,23 +31,18 @@ import {SearchDialog} from './SearchDialog'
 import {StudioMenuItem} from './StudioMenuItem'
 import {StudioTooltip} from './StudioTooltip'
 import {WorkspaceMenu} from './WorkspaceMenu'
-import {PresenceStack} from './PresenceStack'
 import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
 import type {PanelEntry} from './DocumentPanel'
-import {
-  type PageDocumentStatus,
-  type PresenceUser,
-  type StudioConfigLoader,
-  StudioLayer,
-} from './StudioLayer'
+import {type StudioConfigLoader, StudioLayer} from './StudioLayer'
 
 export type {StudioConfigLoader}
 
 /** Client-side options for `mountPreviewBar`. */
 export type PreviewBarOptions = {
   /**
-   * Loads the project's Studio config. With it, signed-in editors get the Studio layer (presence
-   * avatars); without it, the bar works as before.
+   * Loads the project's Studio config. With it, signed-in editors get the Studio layer (the
+   * Studio's own search, and the document pane with `documentPane`); without it, the bar works as
+   * before.
    */
   studioConfig?: StudioConfigLoader
   /**
@@ -630,21 +625,19 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   const editorParams = studioPerspectiveParams(perspective, data.releases)
   // Signed-in editors get Visual Editor and the Studio layer; everyone else gets Sign in.
   const {session, refresh: refreshSession} = useStudioSession(data.projectId)
-  const [presence, setPresence] = useState<PresenceUser[]>([])
   const [signingIn, setSigningIn] = useState(false)
   const signedIn = session.status === 'signed-in'
-  const onlineUsers = signedIn ? withCurrentUser(session.user, presence) : []
   // Signed-in editors search with the Studio's own popover once the Studio layer is ready;
   // everyone else keeps the bar's search.
   const [studioReady, setStudioReady] = useState(false)
   const studioSearch = signedIn && studioReady && Boolean(data.search)
   const searchTypes = (data.search ?? []).flatMap(({kind}) => (kind === 'route' ? [] : [kind]))
 
-  // The page's document (from the Studio's Presentation route map) and its live status.
+  // The page's document (from the Studio's Presentation route map), for the document pane.
   const [pageDocument, setPageDocument] = useState<{_id: string; _type: string} | null>(null)
-  const [documentStatus, setDocumentStatus] = useState<PageDocumentStatus | null>(null)
   useEffect(() => {
-    if (!signedIn || !studioReady || !data.pageDocuments || path === null) return
+    if (!options.documentPane || !signedIn || !studioReady || !data.pageDocuments || path === null)
+      return
     let cancelled = false
     fetch(`${data.basePath}/document?${new URLSearchParams({path})}`)
       .then((response) => (response.ok ? response.json() : {document: null}))
@@ -657,7 +650,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     return () => {
       cancelled = true
     }
-  }, [signedIn, studioReady, data.pageDocuments, data.basePath, path])
+  }, [options.documentPane, signedIn, studioReady, data.pageDocuments, data.basePath, path])
 
   // The document pane: a stack (the page's document, then references opened from it), empty
   // while closed. It follows the page: navigating elsewhere opens the new page's document.
@@ -777,11 +770,6 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
           </div>
           {/* Shopify's preview bar: copy link, the "…" menu, then the primary pill. */}
           <div className="preview-bar-end">
-            <PresenceStack
-              users={onlineUsers}
-              pageEditors={signedIn ? (documentStatus?.editors ?? []) : []}
-              onHoverChange={(hovered) => setOverflow('presence', hovered)}
-            />
             {data.links && (
               <CopyPreviewLink
                 sharing={data.sharing}
@@ -844,10 +832,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
                 }
               : undefined
           }
-          onPresence={setPresence}
           onReady={() => setStudioReady(true)}
-          document={pageDocument}
-          onDocumentStatus={setDocumentStatus}
           search={{
             open: studioSearch && searchOpen,
             types: searchTypes,
@@ -903,15 +888,4 @@ export function mountPreviewBar(
 /** A document's published ID: the pane takes it whatever version the page resolved. */
 function publishedId(id: string) {
   return id.replace(/^drafts\./, '').replace(/^versions\.[^.]+\./, '')
-}
-
-/** The signed-in editor first, then everyone else the Studio reports online. */
-function withCurrentUser(
-  user: {id: string; name?: string; profileImage?: string},
-  others: PresenceUser[],
-): PresenceUser[] {
-  return [
-    {id: user.id, name: user.name, imageUrl: user.profileImage},
-    ...others.filter((other) => other.id !== user.id),
-  ]
 }

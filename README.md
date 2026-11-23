@@ -15,10 +15,8 @@ Shopify theme preview, made of the Studio's own parts.
   Sanity client, or set `projectId`).
 - **Visual Editor, Hide bar, Exit preview:** exit leaves preview in place, with no reload.
 - **For signed-in editors (Studio layer):** with your Studio config passed to the bar, editors
-  signed in to the embedded Studio get Studio presence (who's online, and an editing ring for
-  whoever has this page's document open, from Presentation's route map) and the Studio's own
-  search (native previews and filters). Everyone else gets "Sign in", which opens the Studio's own
-  sign-in.
+  signed in to the embedded Studio get the Studio's own search (native previews and filters).
+  Everyone else gets "Sign in", which opens the Studio's own sign-in.
 - **Document pane (optional):** an **Edit** button opens this page's document in the Studio's own
   document editor, in a pane on the right of the page: the pane Presentation shows, with the
   Published / Draft chips, the form, presence, comments and Publish. The page reflows beside it and
@@ -216,7 +214,8 @@ The host is a few KB with no dependencies, and loads only in preview.
 ### 5. Studio layer (optional)
 
 ```ts
-// In createPreviewBar: the Presentation tool's `resolve.mainDocuments` list
+// In createPreviewBar: the Presentation tool's `resolve.mainDocuments` list (finds the page's
+// document for the document pane)
 pageDocuments: MAIN_DOCUMENTS,
 
 // src/routes/preview-bar/resolve/+server.ts

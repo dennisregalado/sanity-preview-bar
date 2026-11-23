@@ -50,7 +50,16 @@ export type PreviewBarOptions = {
    * pane on the right of the page (the pane Presentation shows). Needs `studioConfig` and the
    * server's `pageDocuments`; editors only. Default `false`.
    */
-  documentPane?: boolean
+  documentPane?: boolean | DocumentPaneOptions
+}
+
+/** `documentPane` settings. */
+export type DocumentPaneOptions = {
+  /**
+   * `false` hides the "All fields" tab of field groups in the pane (Sanity's `ALL_FIELDS_GROUP`
+   * with `hidden: true`, added to the bar's copy of your config only). Default `true`.
+   */
+  allFieldsGroup?: boolean
 }
 
 export type {PreviewBarData}
@@ -655,6 +664,8 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   // The document pane: a stack (the page's document, then references opened from it), empty
   // while closed. It follows the page: navigating elsewhere opens the new page's document.
   const panelEnabled = Boolean(options.documentPane && options.studioConfig)
+  const paneOptions: DocumentPaneOptions =
+    typeof options.documentPane === 'object' ? options.documentPane : {}
   const [panelStack, setPanelStack] = useState<PanelEntry[]>([])
   const panelOpen = signedIn && panelStack.length > 0
   const {width: panelWidth, beside: panelBeside} = usePanelLayout()
@@ -822,6 +833,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
           load={options.studioConfig}
           studioPath={data.studioPath}
           perspective={studioPerspective}
+          allFieldsGroup={paneOptions.allFieldsGroup !== false}
           panel={
             panelEnabled
               ? {

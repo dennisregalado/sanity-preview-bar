@@ -1,5 +1,6 @@
 export {
   mountPreviewBar,
+  type DocumentPaneOptions,
   type PreviewBarData,
   type PreviewBarOptions,
   type StudioConfigLoader,

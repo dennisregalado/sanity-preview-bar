@@ -43,6 +43,7 @@ export type StudioSearch = {
 type SchemaType = {name: string; title?: string}
 
 type SanityModule = {
+  ALL_FIELDS_GROUP: {name: string}
   StudioProvider: ComponentType<{
     config: unknown
     basePath?: string
@@ -71,6 +72,58 @@ type SanityModule = {
 }
 
 type MemoryHistory = {replace: (path: string) => void}
+
+type SchemaDefinition = {groups?: Array<{name: string}>; fields?: unknown[]; of?: unknown[]}
+
+/** Hides the "All fields" group on a type with field groups, and on inline object fields in it. */
+function hideAllFieldsGroup(definition: unknown, allFields: {name: string}): unknown {
+  if (typeof definition !== 'object' || definition === null) return definition
+  const type = definition as SchemaDefinition
+  let next: SchemaDefinition = type
+  if (Array.isArray(type.groups) && type.groups.length > 0) {
+    const groups = type.groups.some((group) => group.name === allFields.name)
+      ? type.groups.map((group) =>
+          group.name === allFields.name ? {...group, hidden: true} : group,
+        )
+      : [{...allFields, hidden: true}, ...type.groups]
+    next = {...next, groups}
+  }
+  if (Array.isArray(type.fields)) {
+    next = {...next, fields: type.fields.map((field) => hideAllFieldsGroup(field, allFields))}
+  }
+  if (Array.isArray(type.of)) {
+    next = {...next, of: type.of.map((member) => hideAllFieldsGroup(member, allFields))}
+  }
+  return next
+}
+
+/**
+ * The project's config with "All fields" hidden (Sanity's `ALL_FIELDS_GROUP` with `hidden: true`)
+ * on every type that has field groups. The root config's `schema.types` resolves after every
+ * plugin's, so wrapping it sees all types. Only the bar's own copy of the config changes; the
+ * Studio itself still shows the group.
+ */
+function withoutAllFieldsGroup(config: unknown, allFields: {name: string}): unknown {
+  type Types = unknown[] | ((previous: unknown[], context: unknown) => unknown[]) | undefined
+  const hide = (types: unknown[]) => types.map((type) => hideAllFieldsGroup(type, allFields))
+  const add = (workspace: unknown) => {
+    const value = workspace as {schema?: {types?: Types}}
+    const types = value.schema?.types
+    return {
+      ...value,
+      schema: {
+        ...value.schema,
+        types: (previous: unknown[], context: unknown) =>
+          hide(
+            typeof types === 'function'
+              ? types(previous, context)
+              : [...previous, ...(types ?? [])],
+          ),
+      },
+    }
+  }
+  return Array.isArray(config) ? config.map(add) : add(config)
+}
 
 type Loaded = {sanity: SanityModule; config: unknown; history: MemoryHistory}
 
@@ -205,6 +258,7 @@ export function StudioLayer({
   studioPath,
   perspective,
   panel,
+  allFieldsGroup = true,
   search,
   onReady,
   onError,
@@ -215,6 +269,8 @@ export function StudioLayer({
   perspective?: string
   /** The document pane, when the bar offers one. */
   panel?: StudioPanel
+  /** `false` hides field groups' "All fields" tab in this copy of the Studio. */
+  allFieldsGroup?: boolean
   search?: StudioSearch
   onReady?: () => void
   onError?: (error: unknown) => void
@@ -229,9 +285,10 @@ export function StudioLayer({
     Promise.all([import('sanity'), import('history'), load()])
       .then(([sanity, {createMemoryHistory}, config]) => {
         if (cancelled) return
+        const studio = sanity as unknown as SanityModule
         setLoaded({
-          sanity: sanity as unknown as SanityModule,
-          config,
+          sanity: studio,
+          config: allFieldsGroup ? config : withoutAllFieldsGroup(config, studio.ALL_FIELDS_GROUP),
           history: createMemoryHistory({initialEntries: [locationRef.current]}),
         })
         onReady?.()

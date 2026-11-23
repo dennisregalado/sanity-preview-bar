@@ -362,6 +362,12 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     })
   }, [mainDocument, paneWanted])
 
+  // The page's document for the bar's page picker, which previews it with the Studio's own
+  // `Preview` (the type's icon or media, the live title).
+  useEffect(() => {
+    postToBar({type: 'sanity-preview-bar:page-document', document: mainDocument})
+  }, [mainDocument, postToBar])
+
   const paneOpen = stack.length > 0
   // The pane's column shows while its document loads too, so the bar lays out for it from the start.
   const paneLoading = paneWanted && !mainDocumentLoaded
@@ -407,6 +413,7 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
           const {path: current, columnOpen: open, mainDocument: main} = latest.current
           if (current) postToBar({type: 'sanity-preview-bar:path', path: current})
           postToBar({type: 'sanity-preview-bar:editor-state', open, available: main !== null})
+          postToBar({type: 'sanity-preview-bar:page-document', document: main})
         })
         break
       case 'sanity-preview-bar:refresh':
@@ -511,6 +518,7 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
             host={barHost}
             sanity={sanityModule}
             editorState={{open: columnOpen, available: editorAvailable}}
+            pageDocument={mainDocument}
           />
         </div>
         <div

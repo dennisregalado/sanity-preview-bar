@@ -105,6 +105,8 @@ export type PreviewBarMessage =
    * whether the page has a document to edit (Edit shows only then).
    */
   | {type: 'sanity-preview-bar:editor-state'; open: boolean; available?: boolean}
+  /** Visual Editor tool → bar: the current page's document (the page picker previews it), if any. */
+  | {type: 'sanity-preview-bar:page-document'; document: {id: string; type: string} | null}
   /** Bar → Visual Editor tool: Edit was clicked; open the page's document in the pane. */
   | {type: 'sanity-preview-bar:open-editor'}
   /** Bar → Visual Editor tool: show the site at desktop width, as a 768px tablet or a 375px phone. */
@@ -176,6 +178,14 @@ export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
     case 'sanity-preview-bar:frame-path':
       // Root-relative only: the bar builds its Studio links from it.
       return 'path' in data && isRootRelative(data.path)
+    case 'sanity-preview-bar:page-document':
+      return (
+        'document' in data &&
+        (data.document === null ||
+          (typeof data.document === 'object' &&
+            typeof (data.document as Record<string, unknown>).id === 'string' &&
+            typeof (data.document as Record<string, unknown>).type === 'string'))
+      )
     case 'sanity-preview-bar:open-document':
       return 'document' in data && isDocument(data.document)
     case 'sanity-preview-bar:editor-state':

@@ -40,6 +40,7 @@ import {WorkspaceMenu} from './WorkspaceMenu'
 import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
 import {publishedId, useDocumentPaneState} from './pane-state'
 import {InspectorButton} from './InspectorButton'
+import {NativePagePreview, PagePicker, pageFallbackTitle} from './PagePicker'
 import {ViewportButton} from './ViewportButton'
 import {ShareMenu, type StudioSharingClient} from './ShareMenu'
 import {type StudioConfigLoader, StudioLayer} from './StudioLayer'
@@ -503,7 +504,8 @@ function Brand({
         </span>
       )}
       {/* The Studio navbar's search button, with its "Search ⌘K" tooltip. */}
-      {search && (
+      {/* In the Visual Editor, search lives in the page picker in the middle of the bar. */}
+      {search && !inTool && (
         <span style={{display: 'flex'}} {...overflowWhileHovered('search-button', setOverflow)}>
           <StudioTooltip content="Search" hotkeys={['Mod', 'K']}>
             <Button
@@ -575,6 +577,7 @@ function Bar({
   options,
   native,
   editorState,
+  initialPageDocument,
 }: {
   data: PreviewBarData
   options: PreviewBarOptions
@@ -582,6 +585,8 @@ function Bar({
   native?: unknown
   /** The tool's pane state at mount, so the bar lays out for it from its first render. */
   editorState?: ToolEditorState
+  /** The page's document at mount (Visual Editor); later as `page-document` messages. */
+  initialPageDocument?: {id: string; type: string} | null
 }) {
   const path = useHostPath()
   const position = useContext(BarPositionContext)
@@ -595,6 +600,16 @@ function Bar({
       ? (typeof options.visualEditor === 'object' && options.visualEditor.tool) || 'visual-editor'
       : null
   const toolEditor = useToolEditor(inTool, editorState)
+  // The page's document, from the Visual Editor tool (`page-document`), for the page picker.
+  const [toolPage, setToolPage] = useState<{id: string; type: string} | null>(
+    initialPageDocument ?? null,
+  )
+  useEffect(() => {
+    if (!inTool) return
+    return host.subscribe((message) => {
+      if (message.type === 'sanity-preview-bar:page-document') setToolPage(message.document)
+    })
+  }, [inTool])
   const toolEditorOpen = toolEditor.open
   // The bar's own width (it narrows beside the document pane). Theme media is [360, 600, …]:
   // button labels from 600px up, icon-only below so the bar fits; the centred grid from 1024px.
@@ -854,7 +869,12 @@ function Bar({
         // The switcher centres on wide bars; with a document pane open (on the site or in the
         // Visual Editor) it sits after the brand.
         className={
-          barWidth >= 1024 && !pane.open && !(inTool && toolEditorOpen)
+          (
+            inTool
+              ? // The Visual Editor keeps its context (switcher, page) centred whenever it fits.
+                barWidth >= 760
+              : barWidth >= 1024 && !pane.open
+          )
             ? 'preview-bar-card preview-bar-wide'
             : 'preview-bar-card'
         }
@@ -883,13 +903,33 @@ function Bar({
             />
           </div>
           <div className="preview-bar-center">
-            <PerspectiveMenu
-              releases={data.releases}
-              releasesError={data.releasesError}
-              perspective={perspective}
-              onOpenChange={(open) => setOverflow('perspective', open)}
-              onSelect={switchPerspective}
-            />
+            {/* The Visual Editor's middle is the context, as in Shopify's theme editor: which
+                version (perspective) and which page. */}
+            <div style={{display: 'flex', alignItems: 'center', gap: 4, minWidth: 0}}>
+              <PerspectiveMenu
+                releases={data.releases}
+                releasesError={data.releasesError}
+                perspective={perspective}
+                onOpenChange={(open) => setOverflow('perspective', open)}
+                onSelect={switchPerspective}
+              />
+              {inTool && data.search && (
+                <PagePicker
+                  preview={
+                    native !== undefined && toolPage ? (
+                      <NativePagePreview
+                        sanity={native}
+                        document={toolPage}
+                        fallback={pageFallbackTitle(path)}
+                      />
+                    ) : null
+                  }
+                  path={path}
+                  onOpen={openSearch}
+                  onHoverChange={(hovered) => setOverflow('page-picker', hovered)}
+                />
+              )}
+            </div>
           </div>
           {/* Shopify's preview bar: copy link, the "…" menu, then the primary pill. */}
           <div className="preview-bar-end">
@@ -1098,6 +1138,7 @@ export function PreviewBarView({
   sanity,
   options = {},
   editorState,
+  pageDocument,
 }: {
   data: PreviewBarData
   host: BarHost
@@ -1105,6 +1146,8 @@ export function PreviewBarView({
   options?: PreviewBarOptions
   /** The tool's pane state at mount; later changes come as `editor-state` messages. */
   editorState?: ToolEditorState
+  /** The page's document at mount; later changes come as `page-document` messages. */
+  pageDocument?: {id: string; type: string} | null
 }) {
   // One bar per document: the tool's host for this one.
   host = toolHost
@@ -1114,7 +1157,13 @@ export function PreviewBarView({
       <BarDataContext.Provider value={data}>
         <BarPositionContext.Provider value="top">
           <style>{CARD_CSS}</style>
-          <Bar data={data} options={options} native={sanity} editorState={editorState} />
+          <Bar
+            data={data}
+            options={options}
+            native={sanity}
+            editorState={editorState}
+            initialPageDocument={pageDocument}
+          />
         </BarPositionContext.Provider>
       </BarDataContext.Provider>
     </ThemeProvider>

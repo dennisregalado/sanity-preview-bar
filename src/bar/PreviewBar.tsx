@@ -1,23 +1,24 @@
 // Loaded only by the bar's route, inside the host's iframe. The stylesheet and styled-components'
 // <style> tags land in the iframe's document, never in the site's.
 import '@sanity/ui/styles.css'
-import CheckmarkCircleIcon from '@sanity/icons/CheckmarkCircle'
 import EditIcon from '@sanity/icons/Edit'
-import ErrorOutlineIcon from '@sanity/icons/ErrorOutline'
 import EllipsisHorizontalIcon from '@sanity/icons/EllipsisHorizontal'
 import EyeClosedIcon from '@sanity/icons/EyeClosed'
 import LeaveIcon from '@sanity/icons/Leave'
-import LinkIcon from '@sanity/icons/Link'
 import SearchIcon from '@sanity/icons/Search'
 import {Button, Card, Flex, Text, ThemeProvider, usePrefersDark} from '@sanity/ui'
 import {Menu, MenuButton} from '@sanity/ui/menu'
-import {Popover} from '@sanity/ui/popover'
 import {buildTheme} from '@sanity/ui/theme'
-import {StrictMode, useCallback, useEffect, useRef, useState, type CSSProperties} from 'react'
+import {StrictMode, useCallback, useEffect, useRef, useState} from 'react'
 import {AnimatePresence} from 'motion/react'
 import {createRoot} from 'react-dom/client'
 import type {PreviewBarData} from '../core/data'
-import {parsePerspective, perspectiveTone, type PreviewPerspective} from '../core/perspective'
+import {
+  parsePerspective,
+  perspectiveTone,
+  serializePerspective,
+  type PreviewPerspective,
+} from '../core/perspective'
 import {isPreviewBarMessage, type PaneSide, type PreviewBarMessage} from '../core/protocol'
 import {BarDataContext, useBarData} from './context'
 import {injectStudioDocumentCss, keepStyledComponentsLast} from './document-css'
@@ -29,6 +30,7 @@ import {StudioTooltip} from './StudioTooltip'
 import {WorkspaceMenu} from './WorkspaceMenu'
 import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
 import {useDocumentPaneState} from './pane-state'
+import {ShareMenu, type StudioSharingClient} from './ShareMenu'
 import {type StudioConfigLoader, StudioLayer} from './StudioLayer'
 
 export type {StudioConfigLoader}
@@ -306,188 +308,6 @@ function useElementWidth(element: HTMLElement | null) {
   return width
 }
 
-/** The share endpoint refused because Presentation's sharing was turned off after the bar loaded. */
-class SharingOffError extends Error {}
-
-/** Asks the server for a short `/p/<code>` link to `path` in the current perspective. */
-async function requestShareLink(basePath: string, path: string) {
-  const response = await fetch(`${basePath}/share`, {
-    method: 'POST',
-    headers: {'content-type': 'application/json'},
-    body: JSON.stringify({pathname: path}),
-  })
-  if (response.status === 409) throw new SharingOffError()
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  const {url} = (await response.json()) as {url: string; expiresAt: string}
-  return url
-}
-
-/**
- * Copies text that is still being fetched. A `ClipboardItem` holding a promise keeps the click's
- * user activation, which Safari otherwise loses across the request; then the Clipboard API (as
- * Presentation does), then the selection fallback for browsers that refuse both. Rejects with the
- * fetch's error when the text never arrives.
- */
-async function copyText(text: Promise<string>) {
-  if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
-    try {
-      const blob = text.then((value) => new Blob([value], {type: 'text/plain'}))
-      await navigator.clipboard.write([new ClipboardItem({'text/plain': blob})])
-      return true
-    } catch {
-      // Fall through; `await text` below rethrows a failed fetch.
-    }
-  }
-  const value = await text
-  try {
-    await navigator.clipboard.writeText(value)
-    return true
-  } catch {
-    const field = document.createElement('textarea')
-    field.value = value
-    field.setAttribute('readonly', '')
-    field.style.cssText = 'position:fixed;opacity:0;pointer-events:none'
-    document.body.appendChild(field)
-    field.select()
-    const copied = document.execCommand('copy')
-    field.remove()
-    return copied
-  }
-}
-
-/** How long Shopify-style "Link copied" confirmation stays up. */
-const CONFIRMATION_MS = 3000
-
-/**
- * Shopify's "Share preview": copies a short `/p/<code>` link that opens this page in the current
- * perspective for 2 days. The server mints it (`/preview-bar/share`) only while Presentation's
- * "Share this preview" is on; while sharing is off the button opens Presentation, where an editor
- * can turn it on.
- */
-function CopyPreviewLink({
-  sharing: initialSharing,
-  path,
-  setOverflow,
-}: {
-  sharing: boolean
-  path: string
-  setOverflow: SetOverflow
-}) {
-  const {basePath, studioPath} = useBarData()
-  const [sharing, setSharing] = useState(initialSharing)
-  const [status, setStatus] = useState<'idle' | 'copying' | 'copied' | 'failed'>('idle')
-  const timer = useRef<number | undefined>(undefined)
-  const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null)
-  const label =
-    status === 'failed'
-      ? 'Couldn’t copy preview link'
-      : sharing
-        ? 'Copy preview link'
-        : 'Turn on preview sharing in Presentation'
-
-  // The confirmation floats above the bar, so the host must stop clipping the frame meanwhile.
-  useEffect(() => {
-    if (status !== 'copied' && status !== 'failed') return
-    setOverflow('copy-confirmation', true)
-    return () => setOverflow('copy-confirmation', false)
-  }, [status, setOverflow])
-
-  useEffect(() => () => window.clearTimeout(timer.current), [])
-
-  function openPresentation() {
-    window.open(`${studioPath}/presentation?${new URLSearchParams({preview: path})}`, '_blank')
-  }
-
-  function settle(next: 'copied' | 'failed') {
-    setStatus(next)
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(
-      () => setStatus('idle'),
-      next === 'copied' ? CONFIRMATION_MS : 2000,
-    )
-  }
-
-  async function handleClick() {
-    if (!sharing) {
-      openPresentation()
-      return
-    }
-    if (status === 'copying') return
-    setStatus('copying')
-    const link = requestShareLink(basePath, path)
-    // `copyText` may not await `link` on every path; keep a rejection from going unhandled.
-    link.catch(() => {})
-    try {
-      settle((await copyText(link)) ? 'copied' : 'failed')
-    } catch (err) {
-      if (err instanceof SharingOffError) {
-        setSharing(false)
-        setStatus('idle')
-        openPresentation()
-        return
-      }
-      console.error('Preview bar: could not create a preview link', err)
-      settle('failed')
-    }
-  }
-
-  // Success and failure both show above the button; a tooltip alone was easy to miss.
-  const failed = status === 'failed'
-  const confirmation = (
-    <Flex align="center" gap={2} padding={3}>
-      {/* Sanity UI's `Text` colours `[data-sanity-icon]` with `--card-icon-color`. */}
-      <Text
-        size={1}
-        style={
-          {
-            '--card-icon-color': failed
-              ? 'var(--card-badge-critical-icon-color)'
-              : 'var(--card-badge-positive-icon-color)',
-          } as CSSProperties
-        }
-      >
-        {failed ? <ErrorOutlineIcon /> : <CheckmarkCircleIcon />}
-      </Text>
-      <Text size={1}>
-        {failed ? 'Couldn’t create a preview link. Try again.' : 'Link copied. Expires in 2 days.'}
-      </Text>
-    </Flex>
-  )
-
-  return (
-    <span
-      ref={setAnchor}
-      style={{display: 'flex'}}
-      {...overflowWhileHovered('copy-link', setOverflow)}
-    >
-      {/* The confirmation replaces the tooltip while it shows. */}
-      <StudioTooltip content={label} disabled={status === 'copied' || failed}>
-        <Button
-          mode="bleed"
-          padding={2}
-          icon={LinkIcon}
-          aria-label={label}
-          aria-busy={status === 'copying'}
-          onClick={() => void handleClick()}
-        />
-      </StudioTooltip>
-      {/* Anchored by element: `StudioTooltip` doesn't forward the ref Popover would set. */}
-      <Popover
-        referenceElement={anchor}
-        content={confirmation}
-        open={status === 'copied' || failed}
-        portal
-        animate
-        placement="top"
-        fallbackPlacements={['top-end', 'top-start']}
-        tone="default"
-        zOffset={3000}
-        role="status"
-      />
-    </span>
-  )
-}
-
 /** Shopify's "…" menu: hide the bar (until the next page load) or leave preview on this page. */
 function MoreMenu({setOverflow}: {setOverflow: SetOverflow}) {
   const {basePath} = useBarData()
@@ -677,6 +497,8 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   // Signed-in editors search with the Studio's own popover once the Studio layer is ready;
   // everyone else keeps the bar's search.
   const [studioReady, setStudioReady] = useState(false)
+  // The editor's Studio client, for the share menu's "Share this preview" switch.
+  const [studioSharing, setStudioSharing] = useState<StudioSharingClient | null>(null)
   const studioSearch = signedIn && studioReady && Boolean(data.search)
   const searchTypes = (data.search ?? []).flatMap(({kind}) => (kind === 'route' ? [] : [kind]))
 
@@ -815,9 +637,11 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
           {/* Shopify's preview bar: copy link, the "…" menu, then the primary pill. */}
           <div className="preview-bar-end">
             {data.links && (
-              <CopyPreviewLink
+              <ShareMenu
                 sharing={data.sharing}
                 path={path ?? '/'}
+                perspectiveKey={serializePerspective(perspective)}
+                studio={signedIn ? studioSharing : null}
                 setOverflow={setOverflow}
               />
             )}
@@ -870,6 +694,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
             studioPath={data.studioPath}
             perspective={studioPerspective}
             onPerspectiveChange={switchPerspective}
+            onSharingClient={setStudioSharing}
             allFieldsGroup={paneOptions.allFieldsGroup !== false}
             panel={
               panelEnabled

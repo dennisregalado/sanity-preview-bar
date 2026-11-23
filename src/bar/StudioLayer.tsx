@@ -65,6 +65,8 @@ type SanityModule = {
     dispatch: (action: {type: 'TERMS_TYPE_ADD'; schemaType: SchemaType}) => void
   }
   useSchema: () => {get: (name: string) => SchemaType | undefined}
+  useClient: (options: {apiVersion: string}) => unknown
+  useCurrentUser: () => {id: string} | null
   useMiddlewareComponents: <T extends object>(props: {
     pick: (plugin: {
       studio?: {components?: {layout?: ComponentType<T>}}
@@ -240,6 +242,23 @@ function PaneResizer({
       }}
     />
   )
+}
+
+/** Reports the editor's Studio client and user ID (the share menu's sharing switch). */
+function SharingClientBridge({
+  sanity,
+  onClient,
+}: {
+  sanity: SanityModule
+  onClient: (studio: {client: unknown; userId?: string} | null) => void
+}) {
+  const client = sanity.useClient({apiVersion: '2025-02-19'})
+  const userId = sanity.useCurrentUser()?.id
+  useEffect(() => {
+    onClient({client, userId})
+    return () => onClient(null)
+  }, [client, userId, onClient])
+  return null
 }
 
 /** Sets the Studio search's type filter to the page types once, the first time it opens. */
@@ -418,6 +437,7 @@ export function StudioLayer({
   studioPath,
   perspective,
   onPerspectiveChange,
+  onSharingClient,
   panel,
   allFieldsGroup = true,
   search,
@@ -433,6 +453,8 @@ export function StudioLayer({
    * "View draft"): the bar switches the site to match.
    */
   onPerspectiveChange?: (selection: {selected: string; excluded: string[]}) => void
+  /** Receives the editor's Studio client and user ID, for toggling Presentation's sharing. */
+  onSharingClient?: (studio: {client: unknown; userId?: string} | null) => void
   /** The document pane, when the bar offers one. */
   panel?: StudioPanel
   /** `false` hides field groups' "All fields" tab in this copy of the Studio. */
@@ -525,6 +547,7 @@ export function StudioLayer({
       unstable_history={loaded.history}
       unstable_noAuthBoundary
     >
+      {onSharingClient && <SharingClientBridge sanity={sanity} onClient={onSharingClient} />}
       {search && (
         <SearchProvider>
           {search.open && <TypeFilterPreset sanity={sanity} types={search.types} />}

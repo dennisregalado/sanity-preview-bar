@@ -5,9 +5,9 @@ Shopify theme preview, made of the Studio's own parts.
 
 - **Perspective switcher:** the Studio's global perspective menu (published, drafts, content releases
   with their stacks and tones), switching instantly with no reload.
-- **Short preview links:** "Copy preview link" makes a `/p/<code>` link that opens the page in the
-  current perspective for 2 days, while Presentation's "Share this preview" is on. No secret in the
-  URL.
+- **Share preview:** Presentation's share menu: the "Share this preview" switch, a QR code to open
+  the preview on a phone, and "Copy preview link". The link is a short `/p/<code>` link that opens
+  the page in the current perspective for 2 days, with no secret in the URL.
 - **Link search (⌘K):** the Studio's search over the pages you configure, with its virtualized list,
   previews and status dots. Picking a result navigates the site.
 - **Workspace menu:** the Studio's own: the title and chevron open the project name, the workspace
@@ -279,8 +279,10 @@ mountPreviewBar(target, data, {
 - Create a KV namespace and bind it (`wrangler.jsonc` → `kv_namespaces`), or pass any store with
   `get` and `put(key, value, ttlSeconds)`.
 - Add `Disallow: /p/` to `robots.txt`.
-- Links are minted only while an editor has **Share this preview** on in Presentation; while it's off
-  the button opens Presentation instead.
+- Links are minted only while **Share this preview** is on. The switch in the bar's share menu is
+  Presentation's own setting (signed-in editors can toggle it there; others see it read-only), and
+  turning it off in either place stops new links. Links already handed out keep working until they
+  expire.
 
 ## Next.js (App Router)
 

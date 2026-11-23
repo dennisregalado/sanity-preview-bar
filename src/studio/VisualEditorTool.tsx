@@ -17,7 +17,7 @@ import {
   urlSearchParamPreviewPathname,
   urlSearchParamPreviewSecret,
 } from '@sanity/preview-url-secret/constants'
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {type CSSProperties, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import * as sanityModule from 'sanity'
 import {type Tool, useClient, useCurrentUser, usePerspective, useWorkspace} from 'sanity'
 import {PresentationDocumentContext} from 'sanity/_singletons'
@@ -80,6 +80,101 @@ function sameSelection(a: PreviewBarSelection, b: PreviewBarSelection) {
 
 function publishedId(id: string) {
   return id.replace(/^drafts\./, '').replace(/^versions\.[^.]+\./, '')
+}
+
+const SKELETON_CSS = `
+@keyframes preview-bar-skeleton { from { opacity: 1; } to { opacity: 0.45; } }
+.preview-bar-skeleton { background: var(--card-skeleton-color-from, var(--card-border-color)); border-radius: 3px; animation: preview-bar-skeleton 0.9s ease-in-out infinite alternate; }
+`
+
+function Bone({
+  width,
+  height,
+  style,
+}: {
+  width: number | string
+  height: number | string
+  style?: CSSProperties
+}) {
+  return <div className="preview-bar-skeleton" style={{width, height, flex: 'none', ...style}} />
+}
+
+/** The tool's layout in skeleton form: the bar, the page and the pane column. */
+function ToolSkeleton({paneWidth}: {paneWidth: number}) {
+  return (
+    <div
+      aria-busy="true"
+      aria-label="Loading the Visual Editor"
+      style={{
+        position: 'absolute',
+        inset: 0,
+        zIndex: 20,
+        display: 'flex',
+        background: 'var(--card-bg-color)',
+      }}
+    >
+      <style>{SKELETON_CSS}</style>
+      <div style={{display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0}}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flex: 'none',
+            height: PREVIEW_BAR_HEIGHT,
+            padding: '0 12px',
+            borderBottom: '1px solid var(--card-border-color)',
+          }}
+        >
+          <Bone width={25} height={25} />
+          <Bone width={110} height={13} />
+          <Bone width={96} height={27} style={{borderRadius: 14}} />
+          <div style={{flex: 1}} />
+          <Bone width={21} height={21} />
+          <Bone width={21} height={21} />
+          <Bone width={21} height={21} />
+        </div>
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+            padding: 24,
+            background: 'var(--card-muted-bg-color, var(--card-bg-color))',
+          }}
+        >
+          <Bone width="100%" height={56} />
+          <Bone width="100%" height="45%" />
+          <Bone width="40%" height={20} />
+          <Bone width="65%" height={20} />
+        </div>
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 20,
+          flex: 'none',
+          width: paneWidth,
+          padding: '14px 16px',
+          borderLeft: '1px solid var(--card-border-color)',
+        }}
+      >
+        <div style={{display: 'flex', gap: 8}}>
+          <Bone width={88} height={25} style={{borderRadius: 13}} />
+          <Bone width={60} height={25} style={{borderRadius: 13}} />
+        </div>
+        <Bone width="45%" height={22} />
+        <Bone width="30%" height={13} />
+        <Bone width="100%" height={36} />
+        <Bone width="30%" height={13} />
+        <Bone width="100%" height={120} />
+        <Bone width="30%" height={13} />
+        <Bone width="100%" height={36} />
+      </div>
+    </div>
+  )
 }
 
 export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) {
@@ -158,6 +253,7 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
   const [viewport, setViewport] = useState<'desktop' | 'mobile'>('desktop')
   const [path, setPath] = useState<string | null>(null)
   const [mainDocument, setMainDocument] = useState<{id: string; type: string} | null>(null)
+  const [mainDocumentLoaded, setMainDocumentLoaded] = useState(false)
   // The pane: open with the page's document by default; closing it is remembered until Edit.
   const [stack, setStack] = useState<PanelEntry[]>([])
   const [paneWanted, setPaneWanted] = useState(true)
@@ -212,6 +308,9 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
       })
       .catch(() => {
         if (!cancelled) setMainDocument(null)
+      })
+      .finally(() => {
+        if (!cancelled) setMainDocumentLoaded(true)
       })
     return () => {
       cancelled = true
@@ -346,6 +445,16 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     return () => window.removeEventListener('message', onMessage)
   }, [origin, postToBar])
 
+  // A skeleton of the whole tool until the bar, the page and the pane's document are all in, so
+  // they appear at once instead of shifting the layout one by one (at most 10s).
+  const [timedOut, setTimedOut] = useState(false)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setTimedOut(true), 10_000)
+    return () => window.clearTimeout(timer)
+  }, [])
+  const ready = Boolean(barData) && path !== null && mainDocumentLoaded
+  const showSkeleton = !ready && !timedOut && !frameError
+
   // Like the bar on the site: the document pane runs top to bottom on the right, and the bar sits
   // beside it, above the page.
   return (
@@ -401,7 +510,7 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
                 fontSize: 13,
               }}
             >
-              {frameError ?? 'Opening preview…'}
+              {frameError}
             </div>
           )}
         </div>
@@ -430,6 +539,7 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
           </PresentationDocumentContext.Provider>
         </div>
       )}
+      {showSkeleton && <ToolSkeleton paneWidth={paneWidth} />}
     </div>
   )
 }

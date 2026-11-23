@@ -869,8 +869,38 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   )
 }
 
+/** Where the Studio keeps its appearance setting (`light`, `dark` or `system`), on this origin. */
+const STUDIO_SCHEME_KEY = 'sanityStudio:ui:colorScheme'
+
+function readStudioScheme(): 'light' | 'dark' | 'system' {
+  try {
+    const value = window.localStorage.getItem(STUDIO_SCHEME_KEY)
+    return value === 'light' || value === 'dark' ? value : 'system'
+  } catch {
+    return 'system'
+  }
+}
+
+/**
+ * The Studio's own appearance setting, so the bar matches the Studio (and the document pane, which
+ * reads the same setting) when an editor picked light or dark there. Follows changes made in a
+ * Studio tab through `storage` events; "system" follows the OS.
+ */
+function useStudioScheme() {
+  const prefersDark = usePrefersDark()
+  const [setting, setSetting] = useState(readStudioScheme)
+  useEffect(() => {
+    function onStorage(event: StorageEvent) {
+      if (event.key === STUDIO_SCHEME_KEY || event.key === null) setSetting(readStudioScheme())
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+  return setting === 'system' ? (prefersDark ? 'dark' : 'light') : setting
+}
+
 function App({data, options}: {data: PreviewBarData; options: PreviewBarOptions}) {
-  const scheme = usePrefersDark() ? 'dark' : 'light'
+  const scheme = useStudioScheme()
   return (
     <ThemeProvider theme={theme} scheme={scheme}>
       <BarDataContext.Provider value={data}>

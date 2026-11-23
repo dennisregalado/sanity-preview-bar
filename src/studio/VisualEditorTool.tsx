@@ -115,27 +115,16 @@ function Bone({
   return <div className="preview-bar-skeleton" style={{width, height, flex: 'none', ...style}} />
 }
 
-/** The page area until the framed site reports its first page. */
+/** The page area until the framed site reports its first page: one bone over the whole page. */
 function PageSkeleton() {
   return (
     <div
       aria-busy="true"
       aria-label="Loading the page"
-      style={{
-        position: 'absolute',
-        inset: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 16,
-        padding: 24,
-        background: 'var(--card-muted-bg-color, var(--card-bg-color))',
-      }}
+      className="preview-bar-skeleton"
+      style={{position: 'absolute', inset: 0, borderRadius: 0}}
     >
       <style>{SKELETON_CSS}</style>
-      <Bone width="100%" height={56} />
-      <Bone width="100%" height="45%" />
-      <Bone width="40%" height={20} />
-      <Bone width="65%" height={20} />
     </div>
   )
 }

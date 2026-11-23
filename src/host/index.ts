@@ -9,7 +9,7 @@
  * manual popover, so it sits in the top layer above every stacking context.
  *
  * With the document pane open the wrapper grows to the full viewport and a `clip-path` cuts it to
- * an L: the bar along the bottom plus the pane's column on the right. Clipped-out areas take no
+ * an L: the pane's full-height column on the right plus the bar, which narrows to sit left of it. Clipped-out areas take no
  * pointer events, so the rest of the page stays clickable, and the page gets `padding-right` so its
  * content reflows beside the pane.
  */
@@ -17,6 +17,7 @@ import {
   isPreviewBarMessage,
   PREVIEW_BAR_HEIGHT,
   PREVIEW_BAR_ROUTE,
+  PREVIEW_PANEL_MIN_PAGE_WIDTH,
   type PreviewBarMessage,
 } from '../core/protocol'
 
@@ -51,9 +52,6 @@ function currentPath() {
 
 /** The bar's height including the bottom safe area, as a CSS length. */
 const BAR_HEIGHT = `(${PREVIEW_BAR_HEIGHT}px + env(safe-area-inset-bottom, 0px))`
-
-/** Narrower than this beside the pane, the page isn't reflowed: the pane overlays it. */
-const MIN_PAGE_WIDTH = 360
 
 export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarHost {
   const basePath = options.basePath ?? PREVIEW_BAR_ROUTE
@@ -126,7 +124,7 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
             '0 100%',
           ].join(', ')})`
         : ''
-    if (panel && window.innerWidth - panelWidth >= MIN_PAGE_WIDTH) {
+    if (panel && window.innerWidth - panelWidth >= PREVIEW_PANEL_MIN_PAGE_WIDTH) {
       root.style.setProperty('padding-right', `${panelWidth}px`)
     } else {
       root.style.removeProperty('padding-right')

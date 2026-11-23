@@ -11,6 +11,12 @@ export const PREVIEW_BAR_ROUTE = '/preview-bar'
 /** Visible height of the bar in CSS pixels; the host reserves this much at the bottom of the page. */
 export const PREVIEW_BAR_HEIGHT = 50
 
+/**
+ * With the document pane open, the page (and the bar) keep at least this many CSS pixels beside
+ * it. On a narrower viewport the pane overlays the page instead, above a full-width bar.
+ */
+export const PREVIEW_PANEL_MIN_PAGE_WIDTH = 360
+
 export type PreviewBarMessage =
   /** Bar → host, once mounted: asks for the current storefront path. */
   | {type: 'sanity-preview-bar:ready'}

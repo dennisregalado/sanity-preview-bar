@@ -18,7 +18,11 @@ import {AnimatePresence} from 'motion/react'
 import {createRoot} from 'react-dom/client'
 import type {PreviewBarData} from '../core/data'
 import {parsePerspective, perspectiveTone, type PreviewPerspective} from '../core/perspective'
-import {isPreviewBarMessage, type PreviewBarMessage} from '../core/protocol'
+import {
+  isPreviewBarMessage,
+  PREVIEW_PANEL_MIN_PAGE_WIDTH,
+  type PreviewBarMessage,
+} from '../core/protocol'
 import {BarDataContext, useBarData} from './context'
 import {injectStudioDocumentCss} from './document-css'
 import {Logo} from './logo'
@@ -208,14 +212,27 @@ function overflowWhileHovered(key: string, setOverflow: SetOverflow) {
 /** The document pane's width: Presentation-like, never wider than the viewport. */
 const PANEL_WIDTH = 420
 
-function usePanelWidth() {
-  const [width, setWidth] = useState(() => Math.min(PANEL_WIDTH, window.innerWidth))
+/**
+ * The pane's width, and whether it sits beside the page: full height, with the bar narrowed to its
+ * left. On a narrow viewport it overlays the page instead, above a full-width bar.
+ */
+function panelLayout() {
+  const width = Math.min(PANEL_WIDTH, window.innerWidth)
+  return {width, beside: window.innerWidth - width >= PREVIEW_PANEL_MIN_PAGE_WIDTH}
+}
+
+function usePanelLayout() {
+  const [layout, setLayout] = useState(panelLayout)
   useEffect(() => {
-    const onResize = () => setWidth(Math.min(PANEL_WIDTH, window.innerWidth))
+    const onResize = () =>
+      setLayout((current) => {
+        const next = panelLayout()
+        return next.width === current.width && next.beside === current.beside ? current : next
+      })
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
-  return width
+  return layout
 }
 
 const OVERLAYS = '[data-ui="Dialog"], [data-ui="Popover"], [data-ui="Tooltip"]'
@@ -647,7 +664,8 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   const panelEnabled = Boolean(options.documentPane && options.studioConfig)
   const [panelStack, setPanelStack] = useState<PanelEntry[]>([])
   const panelOpen = signedIn && panelStack.length > 0
-  const panelWidth = usePanelWidth()
+  const {width: panelWidth, beside: panelBeside} = usePanelLayout()
+  const barBesidePanel = panelOpen && panelBeside
   const pageDocumentId = pageDocument ? publishedId(pageDocument._id) : null
   useEffect(() => {
     setPanelStack((stack) => {
@@ -667,11 +685,10 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     })
   }, [panelOpen, panelWidth])
   usePaneOverlays(panelOpen, panelWidth, setOverflow)
-  function togglePanel() {
-    if (panelStack.length > 0 || !pageDocument || !pageDocumentId) {
-      setPanelStack([])
-      return
-    }
+  function openPanel() {
+    if (!pageDocument || !pageDocumentId) return
+    // The button unmounts under the pointer, with no mouseleave to release its tooltip overflow.
+    setOverflow('edit-button', false)
     setPanelStack([{id: pageDocumentId, type: pageDocument._type, params: {}}])
   }
 
@@ -737,7 +754,12 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         // Only the top edge: the bar spans the viewport, so side and bottom borders read as a box.
         borderTop
         className="preview-bar-card"
-        style={{width: '100%'}}
+        // Beside the open pane the bar narrows to the page's width, left of the pane.
+        style={
+          barBesidePanel
+            ? {width: `calc(100% - ${panelWidth}px)`, alignSelf: 'flex-start'}
+            : {width: '100%'}
+        }
       >
         <div className="preview-bar-layout">
           <div className="preview-bar-start">
@@ -769,21 +791,18 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
               />
             )}
             <MoreMenu setOverflow={setOverflow} />
-            {panelEnabled && signedIn && pageDocument && (
+            {/* Hidden while the pane is open: the pane's own × closes it. */}
+            {panelEnabled && signedIn && pageDocument && !panelOpen && (
               <span style={{display: 'flex'}} {...overflowWhileHovered('edit-button', setOverflow)}>
-                <StudioTooltip
-                  content={panelOpen ? 'Close editor' : 'Edit this page'}
-                  disabled={showLabels}
-                >
+                <StudioTooltip content="Edit this page" disabled={showLabels}>
                   {/* The bar's primary pill (white), in place of Visual Editor. */}
                   <Button
                     mode="default"
                     padding={2}
                     icon={EditIcon}
                     text={showLabels ? 'Edit' : undefined}
-                    aria-label={panelOpen ? 'Close editor' : 'Edit this page'}
-                    aria-pressed={panelOpen}
-                    onClick={togglePanel}
+                    aria-label="Edit this page"
+                    onClick={openPanel}
                   />
                 </StudioTooltip>
               </span>
@@ -818,7 +837,12 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
           perspective={studioPerspective}
           panel={
             panelEnabled
-              ? {stack: panelOpen ? panelStack : [], onChange: setPanelStack, width: panelWidth}
+              ? {
+                  stack: panelOpen ? panelStack : [],
+                  onChange: setPanelStack,
+                  width: panelWidth,
+                  fullHeight: panelBeside,
+                }
               : undefined
           }
           onPresence={setPresence}

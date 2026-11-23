@@ -233,8 +233,10 @@ On the bar page, pass a loader for your Studio config as the third argument:
 **Document pane:** add `documentPane: true` to the same options:
 `mountPreviewBar(target, data, {studioConfig, documentPane: true})`. Signed-in editors get an
 **Edit** button (in place of Visual Editor) whenever the page has a document (from
-`pageDocuments`). It opens the Studio's document pane in a 420px column on the right, above the bar
-(full width on narrow screens):
+`pageDocuments`). It opens the Studio's document pane in a 420px column on the right, top to bottom
+of the viewport, and the bar narrows to sit left of it. The button hides while the pane is open; the
+pane's own × closes it. On viewports too narrow to keep 360px beside the pane, the pane overlays the
+page above a full-width bar.
 
 - The real editor: the same `DocumentPane` Presentation renders, built from public
   `sanity/structure` exports, with your Studio config's plugins, inputs, actions and badges. Your
@@ -352,7 +354,7 @@ bar's included.
   layer (a manual popover) that clips it. When a menu, tooltip or dialog opens, the bar asks the host
   to stop clipping, and to clip again 250ms after the last one closes so exit animations play.
 - **Document pane:** the frame's wrapper grows to the viewport and a `clip-path` cuts it to an L
-  (the bar plus the pane's column); clipped-out areas take no pointer events.
+  (the pane's full-height column plus the narrowed bar); clipped-out areas take no pointer events.
 - **Messages:** the host and bar talk through `postMessage` on the site's own origin only
   (`sanity-preview-bar:*`).
 - **Perspective:** stored in Sanity's own `sanity-preview-perspective` cookie, the one Presentation

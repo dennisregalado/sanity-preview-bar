@@ -118,6 +118,8 @@ export type StudioPanel = {
   stack: PanelEntry[]
   onChange: (stack: PanelEntry[]) => void
   width: number
+  /** Top to bottom of the viewport, with the bar beside it; otherwise it stops above the bar. */
+  fullHeight: boolean
 }
 
 function PresenceBridge({
@@ -254,7 +256,7 @@ function PanelLoading() {
   )
 }
 
-/** The pane's column: right edge, from the top of the frame down to the bar. */
+/** The pane's column: right edge, top to bottom (or down to the bar, on narrow viewports). */
 function PanelColumn({sanity, panel}: {sanity: SanityModule; panel: StudioPanel}) {
   const [structure, setStructure] = useState<StructureModule | null>(null)
   useEffect(() => {
@@ -279,7 +281,7 @@ function PanelColumn({sanity, panel}: {sanity: SanityModule; panel: StudioPanel}
         position: 'fixed',
         top: 0,
         right: 0,
-        bottom: PREVIEW_BAR_HEIGHT,
+        bottom: panel.fullHeight ? 0 : PREVIEW_BAR_HEIGHT,
         width: panel.width,
         overflow: 'hidden',
       }}

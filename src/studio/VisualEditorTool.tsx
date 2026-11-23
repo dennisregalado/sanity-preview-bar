@@ -98,9 +98,15 @@ function publishedId(id: string) {
   return id.replace(/^drafts\./, '').replace(/^versions\.[^.]+\./, '')
 }
 
+// The pulse moves between the Studio's two (opaque) skeleton colours rather than fading the bone:
+// the page skeleton covers the loading site, which must never show through it, so the page
+// appears at once when it's removed.
 const SKELETON_CSS = `
-@keyframes preview-bar-skeleton { from { opacity: 1; } to { opacity: 0.45; } }
-.preview-bar-skeleton { background: var(--card-skeleton-color-from, var(--card-border-color)); border-radius: 3px; animation: preview-bar-skeleton 0.9s ease-in-out infinite alternate; }
+@keyframes preview-bar-skeleton {
+  from { background-color: var(--card-skeleton-color-from, #eeeef1); }
+  to { background-color: var(--card-skeleton-color-to, #f7f7f8); }
+}
+.preview-bar-skeleton { background-color: var(--card-skeleton-color-from, #eeeef1); border-radius: 3px; animation: preview-bar-skeleton 0.9s ease-in-out infinite alternate; }
 `
 
 function Bone({

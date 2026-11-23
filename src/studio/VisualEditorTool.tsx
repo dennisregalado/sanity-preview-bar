@@ -1,28 +1,31 @@
 /**
- * The Visual Editor tool: Presentation's layout with the preview bar. The bar (the site's
- * `/preview-bar` route, framed with `?context=tool&position=top`) runs along the top, the site
+ * The Visual Editor tool: Presentation's layout with the preview bar. The bar runs along the top,
+ * rendered natively in the Studio (`PreviewBarView`, with the Studio's own context), the site
  * (framed under `PREVIEW_BAR_FRAME_NAME`, at desktop width or as a 375px phone) fills the middle,
  * and the Studio's own document pane sits on the right.
  *
- * The tool is the bar's host here, through the same `sanity-preview-bar:*` messages the site's
- * host uses, and talks to the framed site's `mountPreviewBarFrame`: paths, refreshes after a
- * perspective switch, navigation from search. Both frames are on the site's origin, which must be
- * this Studio's origin (an embedded Studio).
+ * The tool is the bar's host, through the same `sanity-preview-bar:*` messages the site's host
+ * uses (in process, no frame), and talks to the framed site's `mountPreviewBarFrame`: paths,
+ * refreshes after a perspective switch, navigation from search. The site is framed on its origin,
+ * which must be this Studio's origin (an embedded Studio); the bar's data comes from its
+ * `/preview-bar/data` route.
  *
- * It's styled with the Studio's CSS variables and plain elements, not the bar's copy of
- * `@sanity/ui`, so it never depends on the Studio sharing that copy.
+ * The tool's own layout uses the Studio's CSS variables and plain elements.
  */
 import {createPreviewSecret} from '@sanity/preview-url-secret/create-secret'
 import {
   urlSearchParamPreviewPathname,
   urlSearchParamPreviewSecret,
 } from '@sanity/preview-url-secret/constants'
-import {type CSSProperties, useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import * as sanityModule from 'sanity'
 import {type Tool, useClient, useCurrentUser, usePerspective} from 'sanity'
 import {PresentationDocumentContext} from 'sanity/_singletons'
 import {useRouter} from 'sanity/router'
 import {DocumentPane, PaneLayout, PaneRouterContext, StructureToolProvider} from 'sanity/structure'
 import {DocumentPanel, type PanelEntry, type StructureModule} from '../bar/DocumentPanel'
+import {type BarHost, PreviewBarView} from '../bar/PreviewBar'
+import type {PreviewBarData} from '../core/data'
 import {
   isPreviewBarMessage,
   PREVIEW_BAR_FRAME_NAME,
@@ -79,19 +82,6 @@ function publishedId(id: string) {
   return id.replace(/^drafts\./, '').replace(/^versions\.[^.]+\./, '')
 }
 
-function useElementHeight(element: HTMLElement | null) {
-  const [height, setHeight] = useState(0)
-  useEffect(() => {
-    if (!element) return
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry) setHeight(Math.round(entry.contentRect.height))
-    })
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [element])
-  return height
-}
-
 export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) {
   const options = tool.options ?? {}
   const barPath = options.barPath ?? PREVIEW_BAR_ROUTE
@@ -145,11 +135,7 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const [root, setRoot] = useState<HTMLDivElement | null>(null)
-  const rootHeight = useElementHeight(root)
-  const barFrame = useRef<HTMLIFrameElement | null>(null)
   const siteFrame = useRef<HTMLIFrameElement | null>(null)
-  const [overlayOpen, setOverlayOpen] = useState(false)
   const [viewport, setViewport] = useState<'desktop' | 'mobile'>('desktop')
   const [path, setPath] = useState<string | null>(null)
   const [mainDocument, setMainDocument] = useState<{id: string; type: string} | null>(null)
@@ -157,10 +143,41 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
   const [stack, setStack] = useState<PanelEntry[]>([])
   const [paneWanted, setPaneWanted] = useState(true)
 
-  const postToBar = useCallback(
-    (message: PreviewBarMessage) => barFrame.current?.contentWindow?.postMessage(message, origin),
-    [origin],
+  // The bar's host, in process: its messages go to `handleBarMessage`, the tool's to its listeners.
+  const barListeners = useRef(new Set<(message: PreviewBarMessage) => void>())
+  const postToBar = useCallback((message: PreviewBarMessage) => {
+    for (const listener of barListeners.current) listener(message)
+  }, [])
+  const handleBarMessage = useRef<(message: PreviewBarMessage) => void>(() => {})
+  const pathRef = useRef<string | null>(null)
+  const barHost = useMemo<BarHost>(
+    () => ({
+      post: (message) => handleBarMessage.current(message),
+      subscribe(listener) {
+        barListeners.current.add(listener)
+        return () => barListeners.current.delete(listener)
+      },
+      initialPath: () => pathRef.current,
+    }),
+    [],
   )
+
+  // The bar's data, from its route, once the framed site is in preview mode (its first path).
+  const [barData, setBarData] = useState<PreviewBarData | null>(null)
+  const pathKnown = path !== null
+  useEffect(() => {
+    if (!pathKnown) return
+    let cancelled = false
+    fetch(`${barPath}/data`, {credentials: 'same-origin'})
+      .then((response) => (response.ok ? (response.json() as Promise<PreviewBarData>) : null))
+      .then((data) => {
+        if (!cancelled) setBarData(data)
+      })
+      .catch((error: unknown) => console.error('sanity-preview-bar: could not load the bar', error))
+    return () => {
+      cancelled = true
+    }
+  }, [pathKnown, barPath])
   const postToSite = useCallback(
     (message: PreviewBarMessage) => siteFrame.current?.contentWindow?.postMessage(message, origin),
     [origin],
@@ -227,137 +244,110 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     routerRef.current.navigateIntent(name, params)
   }, [])
 
-  // Messages from the bar and the framed site.
-  const latest = useRef({path, paneOpen, studioSelection})
-  latest.current = {path, paneOpen, studioSelection}
+  // Messages from the bar (in process) and the framed site (`postMessage`).
+  const latest = useRef({path, paneOpen, studioSelection, mainDocument})
+  latest.current = {path, paneOpen, studioSelection, mainDocument}
+  pathRef.current = path
+  handleBarMessage.current = (message) => {
+    switch (message.type) {
+      case 'sanity-preview-bar:ready':
+        // After the bar's other listeners subscribe (the same commit's effects run first).
+        queueMicrotask(() => {
+          const {path: current, paneOpen: open} = latest.current
+          if (current) postToBar({type: 'sanity-preview-bar:path', path: current})
+          postToBar({type: 'sanity-preview-bar:editor-state', open})
+        })
+        break
+      case 'sanity-preview-bar:refresh':
+        postToSite({type: 'sanity-preview-bar:refresh'})
+        break
+      case 'sanity-preview-bar:navigate':
+        postToSite({type: 'sanity-preview-bar:navigate', href: message.href})
+        break
+      case 'sanity-preview-bar:viewport':
+        setViewport(message.mode)
+        break
+      case 'sanity-preview-bar:open-document': {
+        const {id, type, template, templateParameters} = message.document
+        const entry: PanelEntry = {id, type, params: {}, template, templateParameters}
+        setPaneWanted(true)
+        // The page's document replaces the stack; anything else (a new document, a search result
+        // without a page) goes on top, so × goes back.
+        setStack((current) =>
+          !template && id === latest.current.mainDocument?.id
+            ? [entry]
+            : current.length
+              ? [...current, entry]
+              : [entry],
+        )
+        break
+      }
+      case 'sanity-preview-bar:perspective': {
+        lastBarSelection.current = message.selection
+        if (sameSelection(message.selection, latest.current.studioSelection)) break
+        const {selected, excluded} = message.selection
+        routerRef.current.navigate({
+          stickyParams: {
+            perspective: selected === 'drafts' ? null : selected,
+            excludedPerspectives: excluded.length ? excluded.join(',') : null,
+          },
+        } as never)
+        break
+      }
+      // `menu` (overlays need no unclipping here) and `hide` don't apply in the tool.
+    }
+  }
   useEffect(() => {
     function onMessage(event: MessageEvent) {
-      if (event.origin !== origin || !isPreviewBarMessage(event.data)) return
+      if (event.origin !== origin || event.source !== siteFrame.current?.contentWindow) return
+      if (!isPreviewBarMessage(event.data)) return
       const message = event.data
-      if (event.source === barFrame.current?.contentWindow) {
-        switch (message.type) {
-          case 'sanity-preview-bar:ready':
-            if (latest.current.path)
-              postToBar({type: 'sanity-preview-bar:path', path: latest.current.path})
-            postToBar({type: 'sanity-preview-bar:editor-state', open: latest.current.paneOpen})
-            break
-          case 'sanity-preview-bar:menu':
-            setOverlayOpen(message.open)
-            break
-          case 'sanity-preview-bar:refresh':
-            postToSite({type: 'sanity-preview-bar:refresh'})
-            break
-          case 'sanity-preview-bar:navigate':
-            postToSite({type: 'sanity-preview-bar:navigate', href: message.href})
-            break
-          case 'sanity-preview-bar:viewport':
-            setViewport(message.mode)
-            break
-          case 'sanity-preview-bar:open-document': {
-            const {id, type, template, templateParameters} = message.document
-            const entry: PanelEntry = {id, type, params: {}, template, templateParameters}
-            setPaneWanted(true)
-            // The page's document replaces the stack; anything else (a new document, a search
-            // result without a page) goes on top, so × goes back.
-            setStack((current) =>
-              !template && id === mainDocument?.id
-                ? [entry]
-                : current.length
-                  ? [...current, entry]
-                  : [entry],
-            )
-            break
-          }
-          case 'sanity-preview-bar:perspective': {
-            lastBarSelection.current = message.selection
-            if (sameSelection(message.selection, latest.current.studioSelection)) break
-            const {selected, excluded} = message.selection
-            routerRef.current.navigate({
-              stickyParams: {
-                perspective: selected === 'drafts' ? null : selected,
-                excludedPerspectives: excluded.length ? excluded.join(',') : null,
-              },
-            } as never)
-            break
-          }
+      switch (message.type) {
+        case 'sanity-preview-bar:frame-path': {
+          setPath(message.path)
+          postToBar({type: 'sanity-preview-bar:path', path: message.path})
+          // The Studio's URL follows the page, as Presentation's `?preview=` does.
+          const {state, navigate} = routerRef.current
+          const params = ((state._searchParams as [string, string][] | undefined) ?? []).filter(
+            ([key]) => key !== 'preview',
+          )
+          navigate({...state, _searchParams: [...params, ['preview', message.path]]} as never, {
+            replace: true,
+          })
+          break
         }
-        return
-      }
-      if (event.source === siteFrame.current?.contentWindow) {
-        switch (message.type) {
-          case 'sanity-preview-bar:frame-path': {
-            setPath(message.path)
-            postToBar({type: 'sanity-preview-bar:path', path: message.path})
-            // The Studio's URL follows the page, as Presentation's `?preview=` does.
-            const {state, navigate} = routerRef.current
-            const params = ((state._searchParams as [string, string][] | undefined) ?? []).filter(
-              ([key]) => key !== 'preview',
-            )
-            navigate({...state, _searchParams: [...params, ['preview', message.path]]} as never, {
-              replace: true,
-            })
-            break
-          }
-          case 'sanity-preview-bar:refreshed':
-            postToBar({type: 'sanity-preview-bar:refreshed'})
-            break
-        }
+        case 'sanity-preview-bar:refreshed':
+          postToBar({type: 'sanity-preview-bar:refreshed'})
+          break
       }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [origin, postToBar, postToSite, mainDocument])
+  }, [origin, postToBar])
 
-  // The bar's frame spans the whole tool so its menus can open over the page and the pane; it's
-  // clipped to the bar's height except while one is open, as on the site.
-  const barWrapper: CSSProperties = {
-    position: 'absolute',
-    inset: '0 0 auto 0',
-    height: overlayOpen ? rootHeight : PREVIEW_BAR_HEIGHT,
-    overflow: overlayOpen ? 'visible' : 'hidden',
-    zIndex: 10,
-  }
-
+  // Like the bar on the site: the document pane runs top to bottom on the right, and the bar sits
+  // beside it, above the page.
   return (
     <div
-      ref={setRoot}
       style={{
         position: 'relative',
         display: 'flex',
-        flexDirection: 'column',
         height: '100%',
         minHeight: 0,
         background: 'var(--card-bg-color)',
       }}
     >
-      <div style={{position: 'relative', flex: 'none', height: PREVIEW_BAR_HEIGHT}}>
-        <div style={barWrapper}>
-          <iframe
-            ref={barFrame}
-            title="Sanity preview bar"
-            src={`${barPath}?context=tool&position=top`}
-            allow="clipboard-write"
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              display: 'block',
-              width: '100%',
-              height: Math.max(rootHeight, PREVIEW_BAR_HEIGHT),
-              border: 0,
-              colorScheme: 'normal',
-            }}
-          />
+      <div style={{display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0}}>
+        <div style={{position: 'relative', flex: 'none', height: PREVIEW_BAR_HEIGHT}}>
+          {barData && <PreviewBarView data={barData} host={barHost} sanity={sanityModule} />}
         </div>
-      </div>
-      <div style={{display: 'flex', flex: 1, minHeight: 0}}>
         <div
           style={{
             position: 'relative',
             display: 'flex',
             justifyContent: 'center',
             flex: 1,
-            minWidth: 0,
+            minHeight: 0,
             overflow: 'hidden',
             // Presentation's frame backdrop: the muted card colour around the phone.
             background: 'var(--card-muted-bg-color, var(--card-bg-color))',
@@ -394,30 +384,31 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
             </div>
           )}
         </div>
-        {paneOpen && (
-          <div
-            data-preview-bar-panel=""
-            style={{
-              position: 'relative',
-              flex: 'none',
-              width: paneWidth,
-              minHeight: 0,
-              overflow: 'hidden',
-              borderLeft: '1px solid var(--card-border-color)',
-            }}
-          >
-            <PresentationDocumentContext.Provider value={NO_LOCATIONS as never}>
-              <DocumentPanel
-                structure={structure}
-                stack={stack}
-                onChange={changeStack}
-                onIntent={onIntent}
-                fallback={null}
-              />
-            </PresentationDocumentContext.Provider>
-          </div>
-        )}
       </div>
+      {paneOpen && (
+        <div
+          data-preview-bar-panel=""
+          style={{
+            position: 'relative',
+            flex: 'none',
+            width: paneWidth,
+            height: '100%',
+            minHeight: 0,
+            overflow: 'hidden',
+            borderLeft: '1px solid var(--card-border-color)',
+          }}
+        >
+          <PresentationDocumentContext.Provider value={NO_LOCATIONS as never}>
+            <DocumentPanel
+              structure={structure}
+              stack={stack}
+              onChange={changeStack}
+              onIntent={onIntent}
+              fallback={null}
+            />
+          </PresentationDocumentContext.Provider>
+        </div>
+      )}
     </div>
   )
 }

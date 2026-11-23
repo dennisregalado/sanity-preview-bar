@@ -147,7 +147,8 @@ function withoutAllFieldsGroup(config: unknown, allFields: {name: string}): unkn
   return Array.isArray(config) ? config.map(add) : add(config)
 }
 
-type Loaded = {sanity: SanityModule; config: unknown; history: MemoryHistory}
+/** `history` is null in native mode, where the Studio's own router is in charge. */
+type Loaded = {sanity: SanityModule; config: unknown; history: MemoryHistory | null}
 
 /** The document pane: its stack of documents (empty while closed) and width. */
 export type StudioPanel = {
@@ -445,10 +446,11 @@ export function StudioLayer({
   panel,
   allFieldsGroup = true,
   search,
+  native,
   onReady,
   onError,
 }: {
-  load: StudioConfigLoader
+  load?: StudioConfigLoader
   studioPath: string
   /** The bar's perspective as Studio URL params (`perspective`, `excludedPerspectives`). */
   perspective?: string
@@ -471,15 +473,27 @@ export function StudioLayer({
   /** `false` hides field groups' "All fields" tab in this copy of the Studio. */
   allFieldsGroup?: boolean
   search?: StudioSearch
+  /**
+   * Rendered inside a running Studio (the Visual Editor tool): its `sanity` module. No config is
+   * loaded and no `StudioProvider` mounted; the Studio's own context, router and perspective apply.
+   */
+  native?: unknown
   onReady?: () => void
   onError?: (error: unknown) => void
 }) {
-  const [loaded, setLoaded] = useState<Loaded | null>(null)
+  const [loaded, setLoaded] = useState<Loaded | null>(() =>
+    native ? {sanity: native as SanityModule, config: null, history: null} : null,
+  )
   const location = perspective ? `${studioPath}?${perspective}` : studioPath
   const locationRef = useRef(location)
   locationRef.current = location
 
   useEffect(() => {
+    if (native) {
+      onReady?.()
+      return
+    }
+    if (!load) return
     let cancelled = false
     Promise.all([import('sanity'), import('history'), load()])
       .then(([sanity, {createMemoryHistory}, config]) => {
@@ -507,7 +521,7 @@ export function StudioLayer({
   // no state, so `WorkspaceRouterProvider` swaps its children for a loading screen, which remounted
   // the document pane on every switch.
   useEffect(() => {
-    if (!loaded) return
+    if (!loaded?.history) return
     const {pathname, search} = loaded.history.location
     const params = new URLSearchParams(search)
     for (const name of PERSPECTIVE_PARAMS) params.delete(name)
@@ -522,7 +536,7 @@ export function StudioLayer({
   const perspectiveRef = useRef({perspective, onPerspectiveChange})
   perspectiveRef.current = {perspective, onPerspectiveChange}
   useEffect(() => {
-    if (!loaded) return
+    if (!loaded?.history) return
     return loaded.history.listen(({location: next}) => {
       const {perspective: current, onPerspectiveChange: report} = perspectiveRef.current
       const studio = selectionFromParams(next.search)
@@ -551,13 +565,8 @@ export function StudioLayer({
   if (!loaded) return null
   const {sanity} = loaded
   const {StudioProvider, SearchProvider, SearchPopover} = sanity
-  return (
-    <StudioProvider
-      config={loaded.config}
-      basePath={studioPath}
-      unstable_history={loaded.history}
-      unstable_noAuthBoundary
-    >
+  const content = (
+    <>
       {onSharingClient && <SharingClientBridge sanity={sanity} onClient={onSharingClient} />}
       {newDocument?.open && (
         <NewDocumentMenu
@@ -580,6 +589,17 @@ export function StudioLayer({
       {panel && panel.stack.length > 0 && (
         <PanelColumn sanity={sanity} panel={panel} studioPath={studioPath} onIntent={openIntent} />
       )}
+    </>
+  )
+  if (!loaded.history) return content
+  return (
+    <StudioProvider
+      config={loaded.config}
+      basePath={studioPath}
+      unstable_history={loaded.history}
+      unstable_noAuthBoundary
+    >
+      {content}
     </StudioProvider>
   )
 }

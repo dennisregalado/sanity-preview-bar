@@ -297,6 +297,15 @@ export function createPreviewBar(options: PreviewBarOptions) {
    * GET `?path=`: `{ document: { _id, _type } | null }`, the document the page at `path` shows,
    * from `pageDocuments`. The ID is the published ID, whatever version the perspective shows.
    */
+  /**
+   * GET: the bar's data as JSON (the same as the bar page's `loadBar`), for the Studio's Visual
+   * Editor tool, which renders the bar itself. 404 outside preview mode.
+   */
+  async function barData(ctx: PreviewContext): Promise<Response> {
+    const data = await loadBar(ctx)
+    return data ? json(data) : status(404, 'Not found')
+  }
+
   async function pageDocument(ctx: PreviewContext): Promise<Response> {
     if (!ctx.previewEnabled || !options.pageDocuments) return status(404, 'Not found')
     const path = new URL(ctx.request.url).searchParams.get('path') ?? '/'
@@ -452,6 +461,7 @@ export function createPreviewBar(options: PreviewBarOptions) {
     exit,
     search: searchLinks,
     resolveHref,
+    barData,
     pageDocument,
     share,
     openLink,

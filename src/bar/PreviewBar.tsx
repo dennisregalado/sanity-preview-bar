@@ -122,18 +122,48 @@ const CARD_CSS = `
 .preview-bar-spinner { animation: preview-bar-spin 0.6s linear infinite; }
 `
 
+/**
+ * How the bar reaches its host. Framed (on the site, by `sanity-preview-bar/host`), that's the
+ * parent window on this origin. Rendered natively in the Studio's Visual Editor tool, it's the
+ * tool itself (`mountPreviewBar`'s `host` option). Same messages either way.
+ */
+export type BarHost = {
+  post: (message: PreviewBarMessage) => void
+  subscribe: (listener: (message: PreviewBarMessage) => void) => () => void
+  /** The page's path and query when the bar mounts, when the host already knows it. */
+  initialPath: () => string | null
+}
+
+const frameHost: BarHost = {
+  post: (message) => window.parent.postMessage(message, window.location.origin),
+  subscribe(listener) {
+    function onMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin || event.source !== window.parent) return
+      if (isPreviewBarMessage(event.data)) listener(event.data)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  },
+  initialPath() {
+    try {
+      const {pathname, search} = window.parent.location
+      return `${pathname}${search}`
+    } catch {
+      return null
+    }
+  },
+}
+
+/** One bar per document: set by `mountPreviewBar`. */
+let host: BarHost = frameHost
+
 function postToHost(message: PreviewBarMessage) {
-  window.parent.postMessage(message, window.location.origin)
+  host.post(message)
 }
 
 /** The storefront page's path and query, seeded from the parent (same origin) and kept current by the host. */
 function readParentPath() {
-  try {
-    const {pathname, search} = window.parent.location
-    return `${pathname}${search}`
-  } catch {
-    return null
-  }
+  return host.initialPath()
 }
 
 /**
@@ -145,15 +175,14 @@ function useHostPath() {
   const [path, setPath] = useState<string | null>(readParentPath)
 
   useEffect(() => {
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin || event.source !== window.parent) return
-      if (isPreviewBarMessage(event.data) && event.data.type === 'sanity-preview-bar:path') {
-        setPath(event.data.path)
+    function onMessage(message: PreviewBarMessage) {
+      if (message.type === 'sanity-preview-bar:path') {
+        setPath(message.path)
       }
     }
-    window.addEventListener('message', onMessage)
+    const unsubscribe = host.subscribe(onMessage)
     postToHost({type: 'sanity-preview-bar:ready'})
-    return () => window.removeEventListener('message', onMessage)
+    return () => unsubscribe()
   }, [])
 
   return path
@@ -167,14 +196,13 @@ function useHostRefresh() {
   const pending = useRef<(() => void)[]>([])
 
   useEffect(() => {
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin || event.source !== window.parent) return
-      if (isPreviewBarMessage(event.data) && event.data.type === 'sanity-preview-bar:refreshed') {
+    function onMessage(message: PreviewBarMessage) {
+      if (message.type === 'sanity-preview-bar:refreshed') {
         for (const resolve of pending.current.splice(0)) resolve()
       }
     }
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
+    const unsubscribe = host.subscribe(onMessage)
+    return () => unsubscribe()
   }, [])
 
   return useCallback(
@@ -296,15 +324,14 @@ function usePaneShortcut(toggle: () => void, enabled: boolean) {
       event.preventDefault()
       toggle()
     }
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin || event.source !== window.parent) return
-      if (isPreviewBarMessage(event.data) && event.data.type === 'sanity-preview-bar:pane') toggle()
+    function onMessage(message: PreviewBarMessage) {
+      if (message.type === 'sanity-preview-bar:pane') toggle()
     }
     window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('message', onMessage)
+    const unsubscribe = host.subscribe(onMessage)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('message', onMessage)
+      unsubscribe()
     }
   }, [toggle, enabled])
 }
@@ -496,15 +523,14 @@ function useSearchShortcut(open: () => void, enabled: boolean) {
         open()
       }
     }
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin || event.source !== window.parent) return
-      if (isPreviewBarMessage(event.data) && event.data.type === 'sanity-preview-bar:search') open()
+    function onMessage(message: PreviewBarMessage) {
+      if (message.type === 'sanity-preview-bar:search') open()
     }
     window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('message', onMessage)
+    const unsubscribe = host.subscribe(onMessage)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('message', onMessage)
+      unsubscribe()
     }
   }, [open, enabled])
 }
@@ -514,17 +540,13 @@ function useToolEditorOpen(enabled: boolean) {
   const [open, setOpen] = useState(false)
   useEffect(() => {
     if (!enabled) return
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin || event.source !== window.parent) return
-      if (
-        isPreviewBarMessage(event.data) &&
-        event.data.type === 'sanity-preview-bar:editor-state'
-      ) {
-        setOpen(event.data.open)
+    function onMessage(message: PreviewBarMessage) {
+      if (message.type === 'sanity-preview-bar:editor-state') {
+        setOpen(message.open)
       }
     }
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
+    const unsubscribe = host.subscribe(onMessage)
+    return () => unsubscribe()
   }, [enabled])
   return open
 }
@@ -535,12 +557,23 @@ function sameSelection(a: PreviewBarSelection, b: PreviewBarSelection) {
   )
 }
 
-function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}) {
+function Bar({
+  data,
+  options,
+  native,
+}: {
+  data: PreviewBarData
+  options: PreviewBarOptions
+  /** Rendered natively in a running Studio: its `sanity` module (`PreviewBarView`). */
+  native?: unknown
+}) {
   const path = useHostPath()
   const position = useContext(BarPositionContext)
   // Framed by the Studio's Visual Editor tool (`?context=tool`): the tool shows the pane and the
   // viewport; the bar sends it documents to open instead of opening its own pane.
-  const [inTool] = useState(() => readPreviewBarContext(window.location.search) === 'tool')
+  const [inTool] = useState(
+    () => native !== undefined || readPreviewBarContext(window.location.search) === 'tool',
+  )
   const visualEditorTool =
     !inTool && options.visualEditor
       ? (typeof options.visualEditor === 'object' && options.visualEditor.tool) || 'visual-editor'
@@ -623,20 +656,15 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   }, [inTool, perspective, data.releases])
   useEffect(() => {
     if (!inTool) return
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin || event.source !== window.parent) return
-      if (
-        !isPreviewBarMessage(event.data) ||
-        event.data.type !== 'sanity-preview-bar:set-perspective'
-      )
-        return
+    function onMessage(message: PreviewBarMessage) {
+      if (message.type !== 'sanity-preview-bar:set-perspective') return
       const current = perspectiveRef.current
-      if (sameSelection(event.data.selection, selectionOf(current.perspective, current.releases)))
+      if (sameSelection(message.selection, selectionOf(current.perspective, current.releases)))
         return
-      current.switchPerspective(event.data.selection)
+      current.switchPerspective(message.selection)
     }
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
+    const unsubscribe = host.subscribe(onMessage)
+    return () => unsubscribe()
   }, [inTool])
 
   // The document pane (`pane-state.ts`): it follows the page and survives reloads for this tab.
@@ -799,9 +827,12 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         borderTop={position === 'bottom'}
         borderBottom={position === 'top'}
         ref={setBarElement}
-        // The switcher centres on wide bars; with the document pane open it sits after the brand.
+        // The switcher centres on wide bars; with a document pane open (on the site or in the
+        // Visual Editor) it sits after the brand.
         className={
-          barWidth >= 1024 && !pane.open ? 'preview-bar-card preview-bar-wide' : 'preview-bar-card'
+          barWidth >= 1024 && !pane.open && !(inTool && toolEditorOpen)
+            ? 'preview-bar-card preview-bar-wide'
+            : 'preview-bar-card'
         }
         // Beside the open pane the bar narrows to the page's width, on the pane's other side.
         style={
@@ -912,10 +943,11 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
       </Card>
       {/* Zero-size, so nothing the Studio renders in place (its loading block) moves the bar; the
           pane and popovers are fixed or portaled. */}
-      {signedIn && options.studioConfig && (
+      {signedIn && (options.studioConfig || native !== undefined) && (
         <div style={{position: 'absolute', width: 0, height: 0}}>
           <StudioLayer
             load={options.studioConfig}
+            native={native}
             studioPath={data.studioPath}
             perspective={studioPerspective}
             onPerspectiveChange={switchPerspective}
@@ -1006,6 +1038,37 @@ function App({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         <BarPositionContext.Provider value={position}>
           <style>{CARD_CSS}</style>
           <Bar data={data} options={options} />
+        </BarPositionContext.Provider>
+      </BarDataContext.Provider>
+    </ThemeProvider>
+  )
+}
+
+/**
+ * The bar rendered natively inside a running Studio, for the Visual Editor tool
+ * (`sanity-preview-bar/studio`): no frame, the Studio's own context (pass its `sanity` module), and
+ * the tool as the host. Always at the top, in tool mode.
+ */
+export function PreviewBarView({
+  data,
+  host: toolHost,
+  sanity,
+  options = {},
+}: {
+  data: PreviewBarData
+  host: BarHost
+  sanity: unknown
+  options?: PreviewBarOptions
+}) {
+  // One bar per document: the tool's host for this one.
+  host = toolHost
+  const scheme = useStudioScheme()
+  return (
+    <ThemeProvider theme={theme} scheme={scheme}>
+      <BarDataContext.Provider value={data}>
+        <BarPositionContext.Provider value="top">
+          <style>{CARD_CSS}</style>
+          <Bar data={data} options={options} native={sanity} />
         </BarPositionContext.Provider>
       </BarDataContext.Provider>
     </ThemeProvider>

@@ -59,6 +59,7 @@ export function createNextPreviewBar(options: NextPreviewBarOptions) {
   async function handle(request: Request, {params}: RouteContext) {
     const action = param((await params).action)
     if (request.method === 'GET' && action === 'search') return bar.search(await context(request))
+    if (request.method === 'GET' && action === 'data') return bar.barData(await context(request))
     if (request.method === 'GET' && action === 'document') {
       return bar.pageDocument(await context(request))
     }

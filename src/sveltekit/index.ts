@@ -91,6 +91,8 @@ export function createSvelteKitPreviewBar(options: SvelteKitPreviewBarOptions) {
     search: (event: RequestEvent) => bar.search(context(event)),
     /** `/preview-bar/resolve/+server.ts`: `export const GET = previewBar.resolveHref`. */
     resolveHref: (event: RequestEvent) => bar.resolveHref(context(event)),
+    /** `/preview-bar/data/+server.ts`: `export const GET = previewBar.data` (the Visual Editor). */
+    data: (event: RequestEvent) => bar.barData(context(event)),
     /** `/preview-bar/document/+server.ts`: `export const GET = previewBar.pageDocument`. */
     pageDocument: (event: RequestEvent) => bar.pageDocument(context(event)),
     /** `/preview-bar/share/+server.ts`: `export const POST = previewBar.share`. */

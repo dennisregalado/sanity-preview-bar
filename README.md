@@ -287,9 +287,10 @@ mountPreviewBar(target, data, {
 
 ### 6. Visual Editor tool (optional)
 
-A Studio tool with Presentation's layout and the preview bar on top. The site is framed in the
-middle at desktop width or as a 375px phone (the bar's phone button animates between the two), and
-the Studio's own document pane is on the right, following the page. Typing updates the framed page
+A Studio tool with Presentation's layout and the preview bar. The Studio's own document pane runs
+top to bottom on the right, following the page; beside it, the bar (rendered natively in the
+Studio, with its context) sits above the framed site, at desktop width or as a 375px phone (the
+bar's phone button animates between the two). Typing updates the framed page
 as fast as a normal preview tab: it reads like one (no stega), so the same live updates apply.
 
 ```ts
@@ -302,6 +303,14 @@ plugins: [
     previewUrl: {initial: '/', previewMode: {enable: '/preview/enable'}},
   }),
 ]
+```
+
+The tool reads the bar's data from a JSON route next to the bar's (Next.js's catch-all handler
+already serves it):
+
+```ts
+// src/routes/preview-bar/data/+server.ts
+export const GET = previewBar.data
 ```
 
 On the bar page, `visualEditor: true` makes **Edit** open the current page in the tool (same tab):

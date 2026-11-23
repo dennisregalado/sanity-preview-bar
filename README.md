@@ -261,6 +261,10 @@ mountPreviewBar(target, data, {
   layout plugins that draw their own UI around the Studio would draw it around the pane too.
 - It edits in the bar's perspective: drafts, or the selected release's version.
 - Reference links open the referenced document in the pane; the pane's × goes back, then closes.
+- **Create new document** (the Studio navbar's "+", left of search): the workspace's own
+  new-document options with their permissions, filtered like the Studio's. The new document opens
+  in the pane (on top of the page's, so × goes back); nothing is saved until you edit it. Without
+  the pane, it opens the Studio's create intent in a new tab.
 - Presentation's "Preview this page" locations banner is hidden in the pane: you're already on the
   page.
 - The pane follows the page: navigating the site opens the new page's document. It stays open

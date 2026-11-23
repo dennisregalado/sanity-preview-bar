@@ -1,6 +1,7 @@
 // Loaded only by the bar's route, inside the host's iframe. The stylesheet and styled-components'
 // <style> tags land in the iframe's document, never in the site's.
 import '@sanity/ui/styles.css'
+import AddIcon from '@sanity/icons/Add'
 import EditIcon from '@sanity/icons/Edit'
 import EllipsisHorizontalIcon from '@sanity/icons/EllipsisHorizontal'
 import EyeClosedIcon from '@sanity/icons/EyeClosed'
@@ -396,10 +397,17 @@ function MoreMenu({setOverflow}: {setOverflow: SetOverflow}) {
 function Brand({
   showTitle,
   onSearch,
+  newDocument,
   setOverflow,
 }: {
   showTitle: boolean
   onSearch: () => void
+  /** The Studio navbar's "Create new document" button (signed-in editors). */
+  newDocument: {
+    open: boolean
+    onToggle: () => void
+    ref: (element: HTMLElement | null) => void
+  } | null
   setOverflow: SetOverflow
 }) {
   const {brand, studioPath, search} = useBarData()
@@ -425,6 +433,27 @@ function Brand({
           onOpenChange={(open) => setOverflow('workspace-menu', open)}
           onHoverChange={(hovered) => setOverflow('workspace-button', hovered)}
         />
+      )}
+      {/* The Studio navbar's "Create new document" button, before search. */}
+      {newDocument && (
+        <span
+          style={{display: 'flex'}}
+          {...overflowWhileHovered('new-document-button', setOverflow)}
+        >
+          <StudioTooltip content="Create new document" disabled={newDocument.open}>
+            <Button
+              ref={newDocument.ref}
+              mode="bleed"
+              padding={2}
+              icon={AddIcon}
+              selected={newDocument.open}
+              aria-label="Create new document"
+              aria-haspopup="true"
+              aria-expanded={newDocument.open}
+              onClick={newDocument.onToggle}
+            />
+          </StudioTooltip>
+        </span>
       )}
       {/* The Studio navbar's search button, with its "Search ⌘K" tooltip. */}
       {search && (
@@ -549,6 +578,36 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   }, [pane.open, pane.width, paneSide])
   usePaneOverlays(pane.open, pane.width, paneSide, setOverflow)
   usePaneShortcut(pane.toggle, panelEnabled && signedIn && (pane.open || pane.canOpen))
+  // "Create new document": the Studio's popover, then the new document in the pane.
+  const [newDocumentOpen, setNewDocumentOpen] = useState(false)
+  const [newDocumentAnchor, setNewDocumentAnchor] = useState<HTMLElement | null>(null)
+  function toggleNewDocument() {
+    setOverflow('new-document-button', false)
+    setNewDocumentOpen((open) => !open)
+  }
+  useEffect(() => {
+    setOverflow('new-document', newDocumentOpen)
+  }, [newDocumentOpen, setOverflow])
+  function createDocument(option: {
+    templateId: string
+    schemaType: string
+    parameters?: Record<string, unknown>
+  }) {
+    setNewDocumentOpen(false)
+    if (!panelEnabled) {
+      const params = `template=${encodeURIComponent(option.templateId)};type=${encodeURIComponent(option.schemaType)}`
+      window.open(`${data.studioPath}/intent/create/${params}`, '_blank', 'noopener')
+      return
+    }
+    pane.openDocument({
+      id: crypto.randomUUID(),
+      type: option.schemaType,
+      params: {},
+      template: option.templateId,
+      templateParameters: option.parameters,
+    })
+  }
+
   function openPanel() {
     // The button unmounts under the pointer, with no mouseleave to release its tooltip overflow.
     setOverflow('edit-button', false)
@@ -632,7 +691,16 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
       >
         <div className="preview-bar-layout">
           <div className="preview-bar-start">
-            <Brand showTitle={showLabels} onSearch={openSearch} setOverflow={setOverflow} />
+            <Brand
+              showTitle={showLabels}
+              onSearch={openSearch}
+              newDocument={
+                signedIn && studioReady
+                  ? {open: newDocumentOpen, onToggle: toggleNewDocument, ref: setNewDocumentAnchor}
+                  : null
+              }
+              setOverflow={setOverflow}
+            />
           </div>
           <div className="preview-bar-center">
             <PerspectiveMenu
@@ -704,6 +772,12 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
             perspective={studioPerspective}
             onPerspectiveChange={switchPerspective}
             onSharingClient={setStudioSharing}
+            newDocument={{
+              open: newDocumentOpen,
+              anchor: newDocumentAnchor,
+              onClose: () => setNewDocumentOpen(false),
+              onSelect: createDocument,
+            }}
             allFieldsGroup={paneOptions.allFieldsGroup !== false}
             panel={
               panelEnabled

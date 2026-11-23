@@ -115,6 +115,12 @@ export function useDocumentPaneState({
     setStack([pageEntry])
   }, [pageEntry])
 
+  /** Opens another document (a new one from "Create new document") on top of the pane's stack. */
+  const openDocument = useCallback((entry: PanelEntry) => {
+    store('sessionStorage', OPEN_KEY, '1')
+    setStack((current) => (current.length ? [...current, entry] : [entry]))
+  }, [])
+
   const toggle = useCallback(() => {
     if (open) change([])
     else openPane()
@@ -138,6 +144,7 @@ export function useDocumentPaneState({
     beside,
     canOpen: Boolean(pageEntry),
     openPane,
+    openDocument,
     toggle,
     change,
     resize: beside ? {start: resizeStart, to: resizeTo, end: resizeEnd} : null,

@@ -43,12 +43,25 @@ export type PreviewBarMessage =
   | {type: 'sanity-preview-bar:panel'; open: boolean; width: number}
 
 /*
- * Planned, not implemented: click-to-edit. With the pane open, the host would listen for clicks on
- * the page, find the nearest `[data-sanity]` element (Visual Editing's stega/`createDataAttribute`
- * attribute: document ID, type and field path) and post
- *   Host → bar: {type: 'sanity-preview-bar:edit'; id: string; type: string; path: string}
- * The bar opens that document in the pane (or keeps it, when it's already open) with the pane param
- * `path` set, which the Studio's document pane turns into programmatic focus on that field.
+ * Planned, not implemented: click-to-edit (re-sketched for hub-backed preview).
+ *
+ * The bar's tab has no stega: the storefront turns it on only inside Presentation, because stega
+ * needs Sanity's content source maps and the realtime preview hub evaluates GROQ itself (no source
+ * maps; a stega client bypasses the hub). So elements are annotated explicitly instead:
+ *
+ * 1. Storefront: components put Sanity's own `data-sanity` attribute on editable elements, built
+ *    with `createDataAttribute({id, type, path})` from the `_id`, `_type` and `_key` already in the
+ *    query results (the hub returns them like Sanity does). Section-level first
+ *    (`sections[_key=="abc"]`), field-level where it matters (`sections[_key=="abc"].title`).
+ *    Presentation's overlays read the same attribute, so it helps there too.
+ * 2. Host, while the pane is open: hovering an element with `data-sanity` outlines it (an overlay in
+ *    the page, pointer-events none); clicking it posts the message below instead of following a
+ *    link (Alt/Option-click follows it). The attribute is `key=value;…`, parsed without
+ *    dependencies.
+ *      Host → bar: {type: 'sanity-preview-bar:edit'; id: string; type: string; path: string}
+ * 3. Bar: the page's document gets the pane param `path` (an array item path opens that item's
+ *    editor; a field path focuses the field); another document (a referenced product) opens in the
+ *    pane's stack with that `path`.
  */
 
 export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {

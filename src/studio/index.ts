@@ -13,9 +13,40 @@ import EditIcon from '@sanity/icons/Edit'
 import {createElement, type ReactNode} from 'react'
 import {definePlugin} from 'sanity'
 import {route, useRouter} from 'sanity/router'
+import type {
+  DocumentLocationResolverObject,
+  DocumentLocationsState,
+  DocumentResolver,
+} from 'sanity/presentation'
+import {locationsInput} from './locations'
 import {VisualEditorTool, type VisualEditorToolOptions} from './VisualEditorTool'
 
 export type {VisualEditorToolOptions}
+export type {VisualEditorLocations} from './locations'
+export type {
+  DocumentLocation,
+  DocumentLocationResolver,
+  DocumentLocationResolverObject,
+  DocumentLocationResolvers,
+  DocumentLocationsState,
+  DocumentResolver,
+  DocumentResolverContext,
+} from 'sanity/presentation'
+
+/**
+ * Presentation's `defineLocations`, for `resolve.locations`: types a resolver, does nothing else.
+ * The same resolvers work in both tools.
+ */
+export function defineLocations<K extends string>(
+  resolver: DocumentLocationResolverObject<K> | DocumentLocationsState,
+): typeof resolver {
+  return resolver
+}
+
+/** Presentation's `defineDocuments`, for `resolve.mainDocuments`: types the list, nothing else. */
+export function defineDocuments(resolvers: DocumentResolver[]): typeof resolvers {
+  return resolvers
+}
 
 type NavbarProps = {renderDefault: (props: NavbarProps) => ReactNode}
 
@@ -33,8 +64,11 @@ function navbarFor(toolName: string) {
 export const visualEditorTool = definePlugin<VisualEditorToolOptions | void>((options) => {
   const settings = options ?? {}
   const toolName = settings.name ?? 'visual-editor'
+  const locations = settings.resolve?.locations
   return {
     name: 'sanity-preview-bar/visual-editor',
+    // "Used on N pages" above every document form, as Presentation's `resolve.locations` does.
+    ...(locations ? {form: {components: {input: locationsInput(locations, toolName)}}} : {}),
     ...(settings.hideStudioNavbar === false
       ? {}
       : {studio: {components: {navbar: navbarFor(toolName) as never}}}),

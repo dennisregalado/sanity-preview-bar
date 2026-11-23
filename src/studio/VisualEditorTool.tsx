@@ -27,6 +27,7 @@ import {DocumentPane, PaneLayout, PaneRouterContext, StructureToolProvider} from
 import {DocumentPanel, type PanelEntry, type StructureModule} from '../bar/DocumentPanel'
 import {type BarHost, PreviewBarView} from '../bar/PreviewBar'
 import {useStudioBarData} from './studio-bar-data'
+import type {VisualEditorLocations} from './locations'
 import {PaneResizer} from '../bar/StudioLayer'
 import {PANEL_WIDTH, panelLayout, readNumber, store, useViewportWidth} from '../bar/pane-state'
 import {findPageDocumentRule, type PageDocumentRule} from '../core/page-documents'
@@ -57,10 +58,17 @@ export type VisualEditorToolOptions = {
   /** The bar's route on the site. Default `/preview-bar`. */
   barPath?: string
   /**
-   * Presentation's `resolve.mainDocuments` rules (pass the same list): which document a page shows,
-   * resolved here with the editor's client. Without them, the site's `/preview-bar/document` route
-   * is asked.
+   * Presentation's document resolvers, with its API (`defineDocuments`, `defineLocations`):
+   * - `mainDocuments`: which document each page shows; the pane opens it as you browse. Resolved
+   *   with the editor's client; without it, the site's `/preview-bar/document` route is asked.
+   * - `locations`: where each document appears; every document form shows "Used on N pages", each
+   *   page opening here.
    */
+  resolve?: {
+    mainDocuments?: PageDocumentRule[]
+    locations?: VisualEditorLocations
+  }
+  /** @deprecated Use `resolve.mainDocuments`. */
   mainDocuments?: PageDocumentRule[]
   /** The site serves short preview links (`links` in `createPreviewBar`). Default `true`. */
   links?: boolean
@@ -371,7 +379,7 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
 
   // The page's main document: Presentation's `mainDocuments` rules resolved here with the editor's
   // client in the Studio's perspective, or the site's route without them.
-  const mainDocuments = options.mainDocuments
+  const mainDocuments = options.resolve?.mainDocuments ?? options.mainDocuments
   const stackKey = JSON.stringify(perspectiveStack)
   // The first page is known before the site loads (`?preview=`), so the pane starts with it.
   const documentPath = path ?? initialPath
@@ -379,7 +387,7 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     let cancelled = false
     let lookup: Promise<{_id: string; _type: string} | null>
     if (mainDocuments) {
-      const rule = findPageDocumentRule(mainDocuments, documentPath)
+      const rule = findPageDocumentRule(mainDocuments, documentPath, origin)
       lookup = rule
         ? client
             .withConfig({perspective: perspectiveStack as never})

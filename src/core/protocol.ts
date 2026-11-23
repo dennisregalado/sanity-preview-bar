@@ -47,15 +47,13 @@ export function readPreviewBarContext(search: string): PreviewBarContext {
 
 /**
  * The Visual Editor tool frames the site under this window name. It survives navigation inside
- * the frame, so the site can tell it's in the tool (not in Presentation) on every page.
+ * the frame, so the site can tell it's in the tool (not another embed) on every page.
  */
 export const PREVIEW_BAR_FRAME_NAME = 'sanity-preview-bar-frame'
 
 /**
- * Whether this window is the site framed by the Visual Editor tool. Sites that switch on
- * Presentation's stega and overlays when framed (`window.self !== window.top`) should check this
- * first: in the tool, the page reads like a normal preview tab and mounts
- * `mountPreviewBarFrame` instead.
+ * Whether this window is the site framed by the Visual Editor tool, where the page reads like a
+ * normal preview tab and mounts `mountPreviewBarFrame` instead of the host.
  */
 export function isPreviewBarFrame() {
   return (
@@ -128,8 +126,7 @@ export type PreviewBarMessage =
 /*
  * Planned, not implemented: click-to-edit (re-sketched for hub-backed preview).
  *
- * The bar's tab has no stega: the storefront turns it on only inside Presentation, because stega
- * needs Sanity's content source maps and the realtime preview hub evaluates GROQ itself (no source
+ * The bar's tab has no stega, because stega needs Sanity's content source maps and the realtime preview hub evaluates GROQ itself (no source
  * maps; a stega client bypasses the hub). So elements are annotated explicitly instead:
  *
  * 1. Storefront: components put Sanity's own `data-sanity` attribute on editable elements, built

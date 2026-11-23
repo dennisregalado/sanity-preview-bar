@@ -956,6 +956,12 @@ function Bar({
                 path={path ?? '/'}
                 perspectiveKey={serializePerspective(perspective)}
                 studio={signedIn ? studioSharing : null}
+                toolPath={
+                  // Inside the tool, its own path; on the site, the tool `Edit` opens.
+                  native !== undefined
+                    ? window.location.pathname
+                    : `${data.studioPath.replace(/\/$/, '')}/${visualEditorTool ?? 'visual-editor'}`
+                }
                 setOverflow={setOverflow}
               />
             )}

@@ -1,6 +1,5 @@
 export * from './link-search'
 export * from './perspective'
-export * from './presentation'
 export * from './preview-links'
 export * from './protocol'
 export * from './data'

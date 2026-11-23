@@ -111,10 +111,8 @@ import {handlePreviewPerspective} from 'sanity-preview-bar/sveltekit'
 export const handle = sequence(handleSanity /* handlePreviewMode */, handlePreviewPerspective)
 ```
 
-`handlePreviewPerspective` applies the bar's perspective to `event.locals.sanity.client` and keeps
-stega (and Visual Editing's overlays) to requests from inside Presentation, so a normal preview tab
-renders clean, fast strings. Inside Presentation, call `markPresentationFetches()` (from
-`sanity-preview-bar`) once in the browser so client-side data requests are marked too.
+`handlePreviewPerspective` applies the bar's perspective to `event.locals.sanity.client`, without
+stega, so preview pages render clean, fast strings.
 
 ### 3. Routes
 
@@ -299,26 +297,45 @@ tool, like Presentation's toolbar; the page and the pane each show a skeleton un
 
 ```ts
 // sanity.config.ts
-import {visualEditorTool} from 'sanity-preview-bar/studio'
+import {defineDocuments, defineLocations, visualEditorTool} from 'sanity-preview-bar/studio'
 
 plugins: [
   visualEditorTool({
     // Like Presentation's `previewUrl`: the first page, and the site's preview-mode route.
     previewUrl: {initial: '/', previewMode: {enable: '/preview/enable'}},
-    // Presentation's `resolve.mainDocuments` (the same list): the page's document for the pane.
-    mainDocuments: MAIN_DOCUMENTS,
+    // Presentation's document resolvers, with its API (the same lists work in both tools).
+    resolve: {
+      // Which document each page shows: the pane opens it as you browse.
+      mainDocuments: defineDocuments([
+        {route: '/products/:slug', filter: `_type == "product" && slug.current == $slug`},
+      ]),
+      // Where each document appears: "Used on N pages" above its form, each page opening here.
+      locations: {
+        product: defineLocations({
+          select: {title: 'title', slug: 'slug.current'},
+          resolve: (doc) => ({
+            locations: [{title: doc?.title || 'Untitled', href: `/products/${doc?.slug}`}],
+          }),
+        }),
+      },
+    },
     // Optional: the types the bar's search opens filtered to; `links: false` without short links.
     searchTypes: ['page', 'product'],
   }),
 ]
 ```
 
+The tool replaces Presentation: `mainDocuments` takes all three of its forms (`type`,
+`filter`/`params`, `resolve`), and `locations` its per-type `{select, resolve}` resolvers, fixed
+states, or one function for every type. The locations banner is Presentation's, hidden in the bar's
+own panes, which sit beside the page already.
+
 On the bar page, `visualEditor: true` makes **Edit** open the current page in the tool (same tab):
 `mountPreviewBar(target, data, {studioConfig, visualEditor: true})`. With `documentPane` as well,
 `E` still opens the pane on the site.
 
-In your layout, the framed site answers the tool instead of mounting the host. If you switch on
-Presentation's stega and overlays when framed, check `isPreviewBarFrame()` first:
+In your layout, the framed site answers the tool instead of mounting the host
+(`isPreviewBarFrame()` tells the tool's frame from any other):
 
 ```ts
 import {isPreviewBarFrame} from 'sanity-preview-bar'
@@ -352,8 +369,8 @@ $effect(() => {
   `get` and `put(key, value, ttlSeconds)`.
 - Add `Disallow: /p/` to `robots.txt`.
 - Links are minted only while **Share this preview** is on. The switch in the bar's share menu is
-  Presentation's own setting (signed-in editors can toggle it there; others see it read-only), and
-  turning it off in either place stops new links. Links already handed out keep working until they
+  Sanity's preview sharing setting, the one Presentation's share menu toggles (signed-in editors can
+  toggle it; others see it read-only), and turning it off stops new links. Links already handed out keep working until they
   expire.
 
 ## Next.js (App Router)
@@ -437,10 +454,10 @@ import {PreviewBarHost} from 'sanity-preview-bar/next/client'
 
 The host refreshes with `router.refresh()` and navigates with `router.push()`.
 
-### Visual Editing outside Presentation
+### Visual Editing
 
-Render `<VisualEditing />` only inside the Studio's Presentation tool (for example when
-`window.self !== window.top`). In a normal draft-mode tab its overlays re-parse the page on every
+The bar doesn't use `<VisualEditing />` or stega. If a site renders `<VisualEditing />`, keep it
+out of normal draft-mode tabs and the Visual Editor's frame: its overlays re-parse the page on every
 change and can loop ("Maximum update depth exceeded"), which starves client-side navigation, the
 bar's included.
 

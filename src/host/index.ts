@@ -48,8 +48,8 @@ export type PreviewBarHost = {
 }
 
 /**
- * Whether this window should show the bar: the top window only. Inside the Studio's Presentation
- * iframe the Studio has its own chrome, and other embeds (thumbnails) shouldn't get a bar.
+ * Whether this window should show the bar: the top window only. The Studio's Visual Editor frames
+ * the site with its own bar, and other embeds (thumbnails) shouldn't get one.
  */
 export function isTopWindow() {
   return typeof window !== 'undefined' && window.self === window.top

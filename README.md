@@ -242,6 +242,8 @@ page above a full-width bar.
   layout plugins that draw their own UI around the Studio would draw it around the pane too.
 - It edits in the bar's perspective: drafts, or the selected release's version.
 - Reference links open the referenced document in the pane; the pane's × goes back, then closes.
+- Presentation's "Preview this page" locations banner is hidden in the pane: you're already on the
+  page.
 - The pane follows the page: navigating the site opens the new page's document.
 - The host clips the frame to the bar plus the pane's column (`clip-path`), so the rest of the page
   stays clickable, and adds `padding-right` to `<html>` so the page reflows. Fixed-position

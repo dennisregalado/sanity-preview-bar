@@ -16,6 +16,7 @@
 import {Card, Flex, Spinner} from '@sanity/ui'
 import {
   type ComponentType,
+  type Context,
   createContext,
   type ReactNode,
   useContext,
@@ -135,13 +136,30 @@ function PanelLoading() {
 }
 
 /** The pane's column: right edge, top to bottom (or down to the bar, on narrow viewports). */
+/**
+ * Presentation's "Preview this page" locations banner, which it adds above every document form,
+ * is redundant beside the page itself. Its header renders only for the first Presentation options
+ * registered in `PresentationDocumentContext` (so nested Presentation tools show one banner); this
+ * outer context registers a placeholder first and ignores the plugin's own registration, so the
+ * banner renders nothing. The context lives in `sanity/_singletons`, the one copy Presentation uses.
+ */
+const NO_LOCATIONS = {options: [{}], register: () => () => {}}
+
+type PaneModules = {structure: StructureModule; presentationDocument: Context<unknown>}
+
 function PanelColumn({sanity, panel}: {sanity: SanityModule; panel: StudioPanel}) {
-  const [structure, setStructure] = useState<StructureModule | null>(null)
+  const [modules, setModules] = useState<PaneModules | null>(null)
   useEffect(() => {
     let cancelled = false
-    import('sanity/structure')
-      .then((module) => {
-        if (!cancelled) setStructure(module as unknown as StructureModule)
+    Promise.all([import('sanity/structure'), import('sanity/_singletons')])
+      .then(([structure, singletons]) => {
+        if (cancelled) return
+        setModules({
+          structure: structure as unknown as StructureModule,
+          presentationDocument: (
+            singletons as unknown as {PresentationDocumentContext: Context<unknown>}
+          ).PresentationDocumentContext,
+        })
       })
       .catch((error) =>
         console.error('sanity-preview-bar: could not load the document pane', error),
@@ -164,14 +182,16 @@ function PanelColumn({sanity, panel}: {sanity: SanityModule; panel: StudioPanel}
         overflow: 'hidden',
       }}
     >
-      {structure ? (
+      {modules ? (
         <StudioLayoutMiddleware sanity={sanity}>
-          <DocumentPanel
-            structure={structure}
-            stack={panel.stack}
-            onChange={panel.onChange}
-            fallback={<PanelLoading />}
-          />
+          <modules.presentationDocument.Provider value={NO_LOCATIONS}>
+            <DocumentPanel
+              structure={modules.structure}
+              stack={panel.stack}
+              onChange={panel.onChange}
+              fallback={<PanelLoading />}
+            />
+          </modules.presentationDocument.Provider>
         </StudioLayoutMiddleware>
       ) : (
         <PanelLoading />

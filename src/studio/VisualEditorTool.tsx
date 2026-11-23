@@ -27,6 +27,8 @@ import {DocumentPane, PaneLayout, PaneRouterContext, StructureToolProvider} from
 import {DocumentPanel, type PanelEntry, type StructureModule} from '../bar/DocumentPanel'
 import {type BarHost, PreviewBarView} from '../bar/PreviewBar'
 import {useStudioBarData} from './studio-bar-data'
+import {PaneResizer} from '../bar/StudioLayer'
+import {PANEL_WIDTH, panelLayout, readNumber, store, useViewportWidth} from '../bar/pane-state'
 import {findPageDocumentRule, type PageDocumentRule} from '../core/page-documents'
 import {
   isPreviewBarMessage,
@@ -162,11 +164,35 @@ function PaneSkeleton() {
   )
 }
 
+/** The tool pane's width, apart from the site pane's (the tool's pane is full height). */
+const PANE_WIDTH_KEY = 'sanity-preview-bar:visual-editor-pane-width'
+
 export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) {
   const options = tool.options ?? {}
   const barPath = options.barPath ?? PREVIEW_BAR_ROUTE
   const enablePath = options.previewUrl?.previewMode?.enable ?? '/preview/enable'
-  const paneWidth = options.paneWidth ?? 420
+  // The pane resizes from its inner edge, as the site's pane does: live while dragging, clamped so
+  // the page keeps its minimum width, remembered on release.
+  const windowWidth = useViewportWidth()
+  const [preferredPaneWidth, setPreferredPaneWidth] = useState(
+    () => readNumber(PANE_WIDTH_KEY) ?? options.paneWidth ?? PANEL_WIDTH,
+  )
+  const paneWidth = panelLayout(preferredPaneWidth, windowWidth).width
+  const [resizing, setResizing] = useState(false)
+  const paneWidthRef = useRef(paneWidth)
+  paneWidthRef.current = paneWidth
+  const paneResize = useMemo(
+    () => ({
+      start: () => setResizing(true),
+      to: (width: number) => setPreferredPaneWidth(width),
+      end: () => {
+        setResizing(false)
+        setPreferredPaneWidth(paneWidthRef.current)
+        store('localStorage', PANE_WIDTH_KEY, String(paneWidthRef.current))
+      },
+    }),
+    [],
+  )
   const origin = window.location.origin
 
   const router = useRouter()
@@ -555,6 +581,8 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
                 border: 0,
                 background: 'var(--card-bg-color)',
                 boxShadow: device ? '0 0 0 1px var(--card-border-color)' : 'none',
+                // The resizer's pointer stays with it while dragging over the page.
+                pointerEvents: resizing ? 'none' : undefined,
                 transition: ['width', 'height', 'margin']
                   .map((property) => `${property} 300ms cubic-bezier(0.2, 0, 0, 1)`)
                   .join(', '),
@@ -588,6 +616,7 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
             borderLeft: '1px solid var(--card-border-color)',
           }}
         >
+          <PaneResizer width={paneWidth} side="right" resize={paneResize} />
           {paneOpen ? (
             <PresentationDocumentContext.Provider value={NO_LOCATIONS as never}>
               <DocumentPanel

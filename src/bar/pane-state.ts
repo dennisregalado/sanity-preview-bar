@@ -15,7 +15,7 @@ export const PANEL_MIN_WIDTH = 320
 const WIDTH_KEY = 'sanity-preview-bar:pane-width'
 const OPEN_KEY = 'sanity-preview-bar:pane-open'
 
-function readNumber(key: string) {
+export function readNumber(key: string) {
   try {
     const value = Number(window.localStorage.getItem(key))
     return Number.isFinite(value) && value > 0 ? value : null
@@ -24,7 +24,11 @@ function readNumber(key: string) {
   }
 }
 
-function store(storage: 'localStorage' | 'sessionStorage', key: string, value: string | null) {
+export function store(
+  storage: 'localStorage' | 'sessionStorage',
+  key: string,
+  value: string | null,
+) {
   try {
     if (value === null) window[storage].removeItem(key)
     else window[storage].setItem(key, value)
@@ -54,7 +58,7 @@ export function panelLayout(preferred: number, viewport: number) {
   return {width: Math.round(Math.min(Math.max(preferred, PANEL_MIN_WIDTH), max)), beside: true}
 }
 
-function useViewportWidth() {
+export function useViewportWidth() {
   const [width, setWidth] = useState(() => window.innerWidth)
   useEffect(() => {
     const onResize = () => setWidth(window.innerWidth)

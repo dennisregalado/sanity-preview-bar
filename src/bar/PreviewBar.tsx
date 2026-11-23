@@ -91,6 +91,8 @@ const CARD_CSS = `
 /* HomeButton's StyledCard: radius 2 (3px), no underline, focus ring only for keyboard focus. */
 /* The active search result (keyboard or pointer), like the Studio's CommandList active item. */
 .preview-search-row[data-active] { background-color: var(--card-muted-bg-color); }
+/* The Visual Editor's search layer lets clicks through, except on the search's backdrop and card. */
+.preview-bar-search-layer * { pointer-events: auto; }
 .preview-bar-home { display: flex; border-radius: 3px; outline: none; text-decoration: none; }
 .preview-bar-home:focus-visible { box-shadow: 0 0 0 1px var(--card-bg-color), 0 0 0 3px var(--card-focus-ring-color); }
 /* Brand, perspective switcher, actions. Below 1024px (tablet and phone), or with the document pane
@@ -636,7 +638,14 @@ function Bar({
   }, [setOverflow])
   // The frame stays unclipped until the dialog's exit animation finishes (`onExitComplete`).
   const closeSearch = useCallback(() => setSearchOpen(false), [])
-  useSearchShortcut(openSearch, Boolean(data.search))
+  // ⌘K only opens: while the Studio's search is open, its own ⌘K closes it, and reopening here in
+  // the same keypress would undo that.
+  const searchOpenRef = useRef(searchOpen)
+  searchOpenRef.current = searchOpen
+  const openSearchShortcut = useCallback(() => {
+    if (!searchOpenRef.current) openSearch()
+  }, [openSearch])
+  useSearchShortcut(openSearchShortcut, Boolean(data.search))
   const editorParams = studioPerspectiveParams(perspective, data.releases)
   // Signed-in editors get Visual Editor and the Studio layer; everyone else gets Sign in.
   const {session, refresh: refreshSession} = useStudioSession(data.projectId)

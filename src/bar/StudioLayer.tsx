@@ -13,7 +13,8 @@
  * `excludedPerspectives` params (what the Studio's own URL carries), so the pane edits the drafts or
  * the release version the page is showing.
  */
-import {Card, Flex, Spinner} from '@sanity/ui'
+import {Card, Flex, LayerProvider, Spinner} from '@sanity/ui'
+import {createPortal} from 'react-dom'
 import {
   type ComponentType,
   type Context,
@@ -186,7 +187,7 @@ function intentHref(studioPath: string, name: string, params: Record<string, str
 }
 
 /** Studio's pane resizer: an invisible strip on the pane's edge that shows a line while in use. */
-function PaneResizer({
+export function PaneResizer({
   width,
   side,
   resize,
@@ -436,6 +437,32 @@ function PanelColumn({
   )
 }
 
+/**
+ * The search popover's own layer. `SearchPopover` closes on Escape and outside clicks only while
+ * it is the top layer (no layers above it), and draws its backdrop and card in the layer's
+ * z-index; without its own, it shares the Studio's root layer with the document pane's layers, so
+ * it never closes while the pane is open and sits under the pane. In the Visual Editor
+ * (`portal`), it also covers the whole tool, as the navbar's search covers the Studio: its
+ * backdrop and card are absolutely positioned, so they're placed against a viewport-sized box on
+ * the body instead of the bar's column.
+ */
+function SearchLayer({portal, children}: {portal: boolean; children: ReactNode}) {
+  const layer = <LayerProvider zOffset={SEARCH_Z_OFFSET}>{children}</LayerProvider>
+  if (!portal) return layer
+  return createPortal(
+    <div
+      className="preview-bar-search-layer"
+      style={{position: 'absolute', inset: 0, pointerEvents: 'none'}}
+    >
+      {layer}
+    </div>,
+    document.body,
+  )
+}
+
+/** Above the document pane's layers (its headers, menus and dialogs sit well below 1000). */
+const SEARCH_Z_OFFSET = 1000
+
 export function StudioLayer({
   load,
   studioPath,
@@ -576,15 +603,17 @@ export function StudioLayer({
         />
       )}
       {search && (
-        <SearchProvider>
-          {search.open && <TypeFilterPreset sanity={sanity} types={search.types} />}
-          <SearchPopover
-            open={search.open}
-            onClose={search.onClose}
-            onItemSelect={search.onSelect}
-            disableIntentLink
-          />
-        </SearchProvider>
+        <SearchLayer portal={Boolean(native)}>
+          <SearchProvider>
+            {search.open && <TypeFilterPreset sanity={sanity} types={search.types} />}
+            <SearchPopover
+              open={search.open}
+              onClose={search.onClose}
+              onItemSelect={search.onSelect}
+              disableIntentLink
+            />
+          </SearchProvider>
+        </SearchLayer>
       )}
       {panel && panel.stack.length > 0 && (
         <PanelColumn sanity={sanity} panel={panel} studioPath={studioPath} onIntent={openIntent} />

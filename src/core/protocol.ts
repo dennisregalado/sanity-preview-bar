@@ -20,6 +20,19 @@ export const PREVIEW_PANEL_MIN_PAGE_WIDTH = 360
 /** Which edge of the viewport the document pane sits on. */
 export type PaneSide = 'left' | 'right'
 
+/** Which edge of the viewport the bar sits on. */
+export type PreviewBarPosition = 'top' | 'bottom'
+
+/**
+ * The host tells the framed bar its position in the frame's URL (`/preview-bar?position=top`), so
+ * the bar renders in place from its first frame.
+ */
+export const PREVIEW_BAR_POSITION_PARAM = 'position'
+
+export function readPreviewBarPosition(search: string): PreviewBarPosition {
+  return new URLSearchParams(search).get(PREVIEW_BAR_POSITION_PARAM) === 'top' ? 'top' : 'bottom'
+}
+
 export type PreviewBarMessage =
   /** Bar → host, once mounted: asks for the current storefront path. */
   | {type: 'sanity-preview-bar:ready'}

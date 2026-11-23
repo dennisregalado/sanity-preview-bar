@@ -153,8 +153,10 @@ export type StudioPanel = {
   stack: PanelEntry[]
   onChange: (stack: PanelEntry[]) => void
   width: number
-  /** Top to bottom of the viewport, with the bar beside it; otherwise it stops above the bar. */
+  /** Top to bottom of the viewport, with the bar beside it; otherwise it stops at the bar. */
   fullHeight: boolean
+  /** Which edge the bar is on, for the overlaying (not full-height) pane. */
+  barPosition: 'top' | 'bottom'
   /** Which edge of the viewport the pane sits on. */
   side: PaneSide
   /** Drag (or arrow-key) resizing from the pane's inner edge; `null` when it overlays the page. */
@@ -398,9 +400,9 @@ function PanelColumn({
       data-preview-bar-panel=""
       style={{
         position: 'fixed',
-        top: 0,
+        top: !panel.fullHeight && panel.barPosition === 'top' ? PREVIEW_BAR_HEIGHT : 0,
         [panel.side]: 0,
-        bottom: panel.fullHeight ? 0 : PREVIEW_BAR_HEIGHT,
+        bottom: !panel.fullHeight && panel.barPosition === 'bottom' ? PREVIEW_BAR_HEIGHT : 0,
         width: panel.width,
       }}
     >

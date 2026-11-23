@@ -211,6 +211,10 @@ export const load = previewBar.openLink
 
 The host is a few KB with no dependencies, and loads only in preview.
 
+The bar sits at the bottom by default. Pass `position: 'top'` to `mountPreviewBarHost` to put it at
+the top: the page gets `padding-top` instead, and the bar's menus and tooltips open downward. Fixed
+or sticky headers at `top: 0` don't move, so they sit under the bar.
+
 ### 5. Studio layer (optional)
 
 ```ts

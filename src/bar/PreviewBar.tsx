@@ -9,7 +9,7 @@ import SearchIcon from '@sanity/icons/Search'
 import {Button, Card, Flex, Text, ThemeProvider, usePrefersDark} from '@sanity/ui'
 import {Menu, MenuButton} from '@sanity/ui/menu'
 import {buildTheme} from '@sanity/ui/theme'
-import {StrictMode, useCallback, useEffect, useRef, useState} from 'react'
+import {StrictMode, useCallback, useContext, useEffect, useRef, useState} from 'react'
 import {AnimatePresence} from 'motion/react'
 import {createRoot} from 'react-dom/client'
 import type {PreviewBarData} from '../core/data'
@@ -19,8 +19,13 @@ import {
   serializePerspective,
   type PreviewPerspective,
 } from '../core/perspective'
-import {isPreviewBarMessage, type PaneSide, type PreviewBarMessage} from '../core/protocol'
-import {BarDataContext, useBarData} from './context'
+import {
+  isPreviewBarMessage,
+  type PaneSide,
+  type PreviewBarMessage,
+  readPreviewBarPosition,
+} from '../core/protocol'
+import {BarDataContext, BarPositionContext, useBarData, useBarPlacement} from './context'
 import {injectStudioDocumentCss, keepStyledComponentsLast} from './document-css'
 import {Logo} from './logo'
 import {PerspectiveMenu, studioPerspectiveParams, usePerspectiveSwitch} from './PerspectiveMenu'
@@ -311,6 +316,7 @@ function useElementWidth(element: HTMLElement | null) {
 /** Shopify's "…" menu: hide the bar (until the next page load) or leave preview on this page. */
 function MoreMenu({setOverflow}: {setOverflow: SetOverflow}) {
   const {basePath} = useBarData()
+  const place = useBarPlacement()
   const [exiting, setExiting] = useState(false)
   const [open, setOpen] = useState(false)
 
@@ -346,8 +352,8 @@ function MoreMenu({setOverflow}: {setOverflow: SetOverflow}) {
             }}
             popover={{
               animate: true,
-              placement: 'top-end',
-              fallbackPlacements: ['top-start'],
+              placement: place('top-end'),
+              fallbackPlacements: [place('top-start')],
               portal: true,
               tone: 'default',
               zOffset: 3000,
@@ -463,6 +469,7 @@ function useSearchShortcut(open: () => void, enabled: boolean) {
 
 function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}) {
   const path = useHostPath()
+  const position = useContext(BarPositionContext)
   // The bar's own width (it narrows beside the document pane). Theme media is [360, 600, …]:
   // button labels from 600px up, icon-only below so the bar fits; the centred grid from 1024px.
   const [barElement, setBarElement] = useState<HTMLElement | null>(null)
@@ -594,7 +601,8 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'flex-end',
-        justifyContent: 'flex-end',
+        // The bar's edge of the frame (the host's `position`).
+        justifyContent: position === 'top' ? 'flex-start' : 'flex-end',
         width: '100%',
         height: '100%',
       }}
@@ -607,8 +615,9 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         // The Studio navbar's `RootCard padding={3}`, so both bars are the same height. Inline
         // padding comes from `.preview-bar-card` (10px, 20px from 1024px).
         padding={3}
-        // Only the top edge: the bar spans the viewport, so side and bottom borders read as a box.
-        borderTop
+        // Only the edge facing the page: the bar spans the viewport, so other borders read as a box.
+        borderTop={position === 'bottom'}
+        borderBottom={position === 'top'}
         ref={setBarElement}
         className={barWidth >= 1024 ? 'preview-bar-card preview-bar-wide' : 'preview-bar-card'}
         // Beside the open pane the bar narrows to the page's width, on the pane's other side.
@@ -703,6 +712,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
                     onChange: pane.change,
                     width: pane.width,
                     fullHeight: pane.beside,
+                    barPosition: position,
                     side: paneSide,
                     resize: pane.resize,
                   }
@@ -766,11 +776,15 @@ function useStudioScheme() {
 
 function App({data, options}: {data: PreviewBarData; options: PreviewBarOptions}) {
   const scheme = useStudioScheme()
+  // Set by the host in the frame's URL (`?position=top`); bottom otherwise.
+  const [position] = useState(() => readPreviewBarPosition(window.location.search))
   return (
     <ThemeProvider theme={theme} scheme={scheme}>
       <BarDataContext.Provider value={data}>
-        <style>{CARD_CSS}</style>
-        <Bar data={data} options={options} />
+        <BarPositionContext.Provider value={position}>
+          <style>{CARD_CSS}</style>
+          <Bar data={data} options={options} />
+        </BarPositionContext.Provider>
       </BarDataContext.Provider>
     </ThemeProvider>
   )

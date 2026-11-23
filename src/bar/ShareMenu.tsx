@@ -20,7 +20,7 @@ import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
 import {Popover} from '@sanity/ui/popover'
 import {Tooltip} from '@sanity/ui/tooltip'
 import {lazy, Suspense, useEffect, useRef, useState, type CSSProperties} from 'react'
-import {useBarData} from './context'
+import {useBarData, useBarPlacement} from './context'
 
 /** What the Studio layer reports for toggling sharing: the editor's client and user ID. */
 export type StudioSharingClient = {client: unknown; userId?: string}
@@ -113,6 +113,7 @@ export function ShareMenu({
   setOverflow: (key: string, visible: boolean) => void
 }) {
   const {basePath, studioPath} = useBarData()
+  const place = useBarPlacement()
   const [sharing, setSharing] = useState(initialSharing)
   const [open, setOpen] = useState(false)
   const [toggling, setToggling] = useState<'enabling' | 'disabling' | null>(null)
@@ -218,8 +219,8 @@ export function ShareMenu({
               </Text>
             }
             padding={2}
-            fallbackPlacements={['top-start']}
-            placement="top"
+            fallbackPlacements={[place('top-start')]}
+            placement={place('top')}
             portal
             zOffset={3100}
           >
@@ -316,8 +317,8 @@ export function ShareMenu({
         popover={{
           animate: true,
           constrainSize: true,
-          placement: 'top',
-          fallbackPlacements: ['top-end', 'top-start'],
+          placement: place('top'),
+          fallbackPlacements: [place('top-end'), place('top-start')],
           portal: true,
           tone: 'default',
           zOffset: 3000,
@@ -332,8 +333,8 @@ export function ShareMenu({
         open={confirmation !== null}
         portal
         animate
-        placement="top"
-        fallbackPlacements={['top-end', 'top-start']}
+        placement={place('top')}
+        fallbackPlacements={[place('top-end'), place('top-start')]}
         tone="default"
         zOffset={3000}
         role="status"

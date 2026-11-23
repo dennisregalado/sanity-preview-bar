@@ -35,7 +35,7 @@ import {
   type ReleaseDocument,
   type ReleaseType,
 } from '../core/perspective'
-import {useBarData} from './context'
+import {useBarData, useBarPlacement} from './context'
 
 const GROUP_LABELS: Record<ReleaseType, string> = {
   asap: 'ASAP',
@@ -218,6 +218,7 @@ export function PerspectiveMenu({
   onSelect,
 }: PerspectiveMenuProps) {
   const {basePath, studioPath} = useBarData()
+  const place = useBarPlacement()
   const [filter, setFilter] = useState('')
   const {selected, excluded} = useMemo(
     () => selectionOf(perspective, releases),
@@ -392,8 +393,8 @@ export function PerspectiveMenu({
         }}
         popover={{
           animate: true,
-          placement: 'top-start',
-          fallbackPlacements: ['top-end'],
+          placement: place('top-start'),
+          fallbackPlacements: [place('top-end')],
           portal: true,
           constrainSize: true,
           tone: 'default',

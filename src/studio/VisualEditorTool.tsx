@@ -135,26 +135,68 @@ function PageSkeleton() {
   )
 }
 
-/** The pane column until the page's document is known. */
+/**
+ * The pane column until the page's document is known, laid out as the Studio's document pane is
+ * (measured at 420px): the 50px header with the Published and Draft chips and its icon buttons,
+ * the title's breadcrumb, the type label and the title, and the footer's status, Publish and
+ * actions. No fields: they differ per type.
+ */
 function PaneSkeleton() {
+  const round = {borderRadius: 999}
+  // An icon button's glyph, centred in its 25px slot.
+  const icon = (right: number) => (
+    <Bone width={17} height={17} style={{position: 'absolute', top: 16, right, ...round}} />
+  )
   return (
     <div
       aria-busy="true"
       aria-label="Loading the document"
-      style={{display: 'flex', flexDirection: 'column', gap: 20, padding: '14px 16px'}}
+      style={{position: 'relative', height: '100%'}}
     >
       <style>{SKELETON_CSS}</style>
-      <div style={{display: 'flex', gap: 8}}>
-        <Bone width={88} height={25} style={{borderRadius: 13}} />
-        <Bone width={60} height={25} style={{borderRadius: 13}} />
+      <div
+        style={{
+          position: 'relative',
+          height: 50,
+          borderBottom: '1px solid var(--card-border-color)',
+        }}
+      >
+        <div style={{position: 'absolute', top: 12, left: 12, display: 'flex', gap: 4}}>
+          <Bone width={98} height={25} style={round} />
+          <Bone width={68} height={25} style={round} />
+        </div>
+        {icon(16)}
+        {icon(45)}
+        {icon(74)}
+        {icon(103)}
       </div>
-      <Bone width="45%" height={22} />
-      <Bone width="30%" height={13} />
-      <Bone width="100%" height={36} />
-      <Bone width="30%" height={13} />
-      <Bone width="100%" height={120} />
-      <Bone width="30%" height={13} />
-      <Bone width="100%" height={36} />
+      <div style={{position: 'absolute', left: 20, right: 20, top: 69}}>
+        <Bone width={96} height={12} />
+      </div>
+      <div style={{position: 'absolute', left: 20, right: 20, top: 131}}>
+        <Bone width={36} height={12} />
+      </div>
+      <div style={{position: 'absolute', left: 20, right: 20, top: 159}}>
+        <Bone width="45%" height={21} />
+      </div>
+      <div
+        style={{
+          position: 'absolute',
+          left: 16,
+          right: 16,
+          bottom: 12,
+          height: 25,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        <Bone width={21} height={21} style={round} />
+        <Bone width={68} height={12} />
+        <div style={{flex: 1}} />
+        <Bone width={79} height={25} />
+        <Bone width={17} height={17} style={{...round, margin: '0 4px'}} />
+      </div>
     </div>
   )
 }

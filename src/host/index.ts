@@ -7,11 +7,17 @@
  * the bottom of a bar-height wrapper that clips it. Opening a menu only stops the clipping, so the
  * frame's viewport never changes and its popovers position once, with no relayout. The wrapper is a
  * manual popover, so it sits in the top layer above every stacking context.
+ *
+ * With the document pane open the wrapper grows to the full viewport and a `clip-path` cuts it to
+ * an L: the pane's full-height column on the right plus the bar, which narrows to sit left of it. Clipped-out areas take no
+ * pointer events, so the rest of the page stays clickable, and the page gets `padding-right` so its
+ * content reflows beside the pane.
  */
 import {
   isPreviewBarMessage,
   PREVIEW_BAR_HEIGHT,
   PREVIEW_BAR_ROUTE,
+  PREVIEW_PANEL_MIN_PAGE_WIDTH,
   type PreviewBarMessage,
 } from '../core/protocol'
 
@@ -40,14 +46,28 @@ export function isTopWindow() {
   return typeof window !== 'undefined' && window.self === window.top
 }
 
+function isEditable(target: EventTarget | null) {
+  const element = target as HTMLElement | null
+  return Boolean(
+    element?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"]'),
+  )
+}
+
 function currentPath() {
   return window.location.pathname + window.location.search
 }
+
+/** The bar's height including the bottom safe area, as a CSS length. */
+const BAR_HEIGHT = `(${PREVIEW_BAR_HEIGHT}px + env(safe-area-inset-bottom, 0px))`
 
 export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarHost {
   const basePath = options.basePath ?? PREVIEW_BAR_ROUTE
   let path = options.path ?? currentPath()
   let destroyed = false
+  /** An overlay (menu, tooltip, dialog) is open: the whole frame shows and takes clicks. */
+  let overlayOpen = false
+  /** The document pane's width, or 0 while it's closed. */
+  let panelWidth = 0
 
   const wrapper = document.createElement('div')
   wrapper.setAttribute('popover', 'manual')
@@ -60,7 +80,7 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
     zIndex: '2147483000',
     boxSizing: 'border-box',
     width: '100%',
-    height: `calc(${PREVIEW_BAR_HEIGHT}px + env(safe-area-inset-bottom, 0px))`,
+    height: `calc${BAR_HEIGHT}`,
     margin: '0',
     padding: '0',
     border: '0',
@@ -95,6 +115,29 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
   const root = document.documentElement
   root.style.setProperty('padding-bottom', `${PREVIEW_BAR_HEIGHT}px`)
 
+  /** Clipping for the current overlay and pane state. */
+  function layout() {
+    const panel = panelWidth > 0
+    wrapper.style.height = panel ? '100dvh' : `calc${BAR_HEIGHT}`
+    wrapper.style.overflow = overlayOpen ? 'visible' : 'hidden'
+    wrapper.style.clipPath =
+      panel && !overlayOpen
+        ? `polygon(${[
+            `0 calc(100% - ${BAR_HEIGHT})`,
+            `calc(100% - ${panelWidth}px) calc(100% - ${BAR_HEIGHT})`,
+            `calc(100% - ${panelWidth}px) 0`,
+            '100% 0',
+            '100% 100%',
+            '0 100%',
+          ].join(', ')})`
+        : ''
+    if (panel && window.innerWidth - panelWidth >= PREVIEW_PANEL_MIN_PAGE_WIDTH) {
+      root.style.setProperty('padding-right', `${panelWidth}px`)
+    } else {
+      root.style.removeProperty('padding-right')
+    }
+  }
+
   function post(message: PreviewBarMessage) {
     iframe.contentWindow?.postMessage(message, window.location.origin)
   }
@@ -116,7 +159,12 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
       // While a menu, tooltip or dialog is open the transparent frame stops being clipped so it
       // can draw above the bar; a click outside lands in the frame and closes it.
       case 'sanity-preview-bar:menu':
-        wrapper.style.overflow = event.data.open ? 'visible' : 'hidden'
+        overlayOpen = event.data.open
+        layout()
+        break
+      case 'sanity-preview-bar:panel':
+        panelWidth = event.data.open ? Math.min(event.data.width, window.innerWidth) : 0
+        layout()
         break
       case 'sanity-preview-bar:navigate':
         void options.navigate(event.data.href)
@@ -129,22 +177,37 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
     }
   }
 
-  // ⌘K / Ctrl+K on the page opens the bar's search, like the Studio's shortcut.
+  // ⌘K / Ctrl+K on the page opens the bar's search, like the Studio's shortcut; `E` (not while
+  // typing) toggles the document pane, when the bar has one.
   function onKeyDown(event: KeyboardEvent) {
-    if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k') return
-    event.preventDefault()
-    post({type: 'sanity-preview-bar:search'})
+    const key = event.key.toLowerCase()
+    if ((event.metaKey || event.ctrlKey) && key === 'k') {
+      event.preventDefault()
+      post({type: 'sanity-preview-bar:search'})
+      return
+    }
+    if (key !== 'e' || event.metaKey || event.ctrlKey || event.altKey) return
+    if (event.repeat || event.isComposing || event.defaultPrevented || isEditable(event.target))
+      return
+    post({type: 'sanity-preview-bar:pane'})
+  }
+
+  function onResize() {
+    if (panelWidth > 0) layout()
   }
 
   window.addEventListener('message', onMessage)
   window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('resize', onResize)
 
   function destroy() {
     if (destroyed) return
     destroyed = true
     window.removeEventListener('message', onMessage)
     window.removeEventListener('keydown', onKeyDown)
+    window.removeEventListener('resize', onResize)
     root.style.removeProperty('padding-bottom')
+    root.style.removeProperty('padding-right')
     wrapper.remove()
   }
 

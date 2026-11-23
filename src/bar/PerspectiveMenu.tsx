@@ -36,8 +36,6 @@ import {
   type ReleaseType,
 } from '../core/perspective'
 import {useBarData} from './context'
-import type {PageDocumentStatus} from './StudioLayer'
-import {relativeTime} from './time'
 
 const GROUP_LABELS: Record<ReleaseType, string> = {
   asap: 'ASAP',
@@ -65,12 +63,6 @@ export type PerspectiveMenuProps = {
   onChange: (perspective: PreviewPerspective) => void
   /** Reruns the storefront's queries once the server has stored the latest switch. */
   onRefresh: () => Promise<void>
-  /**
-   * This page's document, live from the Studio (signed-in editors): each row shows the page's
-   * version in that layer, like the Studio document header's version chips, and the closed
-   * switcher shows a dot when the page has unpublished changes.
-   */
-  page?: PageDocumentStatus | null
 }
 
 /** "Monday at 2:00 AM" within a week, "Dec 1 at 2:00 AM" (plus year if not this year) after. */
@@ -166,7 +158,6 @@ export function PerspectiveMenu({
   onOpenChange,
   onChange,
   onRefresh,
-  page,
 }: PerspectiveMenuProps) {
   const {basePath, studioPath} = useBarData()
   const [filter, setFilter] = useState('')
@@ -318,7 +309,6 @@ export function PerspectiveMenu({
                 </Text>
               )}
             </Flex>
-            {page && <PageVersion layer={layer} page={page} />}
             {canExclude(layer, index) && (
               <Box flex="none" padding={1}>
                 <StudioTooltip content={hidden ? 'Show release' : 'Hide release'}>
@@ -365,7 +355,6 @@ export function PerspectiveMenu({
           <Text size={1} weight="medium" textOverflow="ellipsis">
             {selectedLayer.title}
           </Text>
-          {page?.draft && <UnpublishedDot />}
         </Flex>
       </Box>
       <MenuButton
@@ -409,13 +398,6 @@ export function PerspectiveMenu({
                 onKeyDown={(event) => event.stopPropagation()}
               />
             </Box>
-            {page && (
-              <Box paddingX={3} paddingTop={3} paddingBottom={1}>
-                <Text size={1} muted textOverflow="ellipsis">
-                  This page: {page.title}
-                </Text>
-              </Box>
-            )}
             {/* `ReleasesList`: Card padding 1 with a 4px gap between rows. */}
             <Flex direction="column" gap={1} padding={1}>
               {systemLayers.map(renderLayer)}
@@ -483,44 +465,4 @@ export function studioPerspectiveParams(
   if (selected !== DRAFTS) params.set('perspective', selected)
   if (excluded.length) params.set('excludedPerspectives', excluded.join(','))
   return params
-}
-
-/** This page's version in a layer, right-aligned in its row: when it changed, or that it has none. */
-function PageVersion({layer, page}: {layer: Layer; page: PageDocumentStatus}) {
-  const time =
-    layer.kind === 'published'
-      ? page.published
-      : layer.kind === 'drafts'
-        ? page.draft
-        : (page.versions[layer.id] ?? null)
-  const empty =
-    layer.kind === 'published' ? 'Not published' : layer.kind === 'drafts' ? 'No changes' : null
-  if (!time && !empty) return null
-  return (
-    <Box flex="none" paddingY={2} paddingRight={3}>
-      <Text size={1} muted style={{color: 'inherit', opacity: time ? 0.75 : 0.5}}>
-        {time ? relativeTime(time) : empty}
-      </Text>
-    </Box>
-  )
-}
-
-/** The closed switcher's signal that this page has unpublished draft changes. */
-function UnpublishedDot() {
-  return (
-    <StudioTooltip content="This page has unpublished changes">
-      <span
-        aria-label="This page has unpublished changes"
-        role="img"
-        style={{
-          display: 'block',
-          flex: 'none',
-          width: 6,
-          height: 6,
-          borderRadius: '50%',
-          background: 'var(--card-badge-caution-icon-color)',
-        }}
-      />
-    </StudioTooltip>
-  )
 }

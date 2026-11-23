@@ -48,3 +48,39 @@ export function injectStudioDocumentCss(
   style.textContent = transparent ? BASE_CSS + FRAME_CSS : BASE_CSS
   document.head.appendChild(style)
 }
+
+function isStylesheet(node: Element) {
+  return (
+    node.localName === 'style' ||
+    (node.localName === 'link' && /\bstylesheet\b/.test((node as HTMLLinkElement).rel))
+  )
+}
+
+/**
+ * Keeps styled-components' `<style>` tags after every other stylesheet in the frame's `<head>`, the
+ * order a standalone Studio page has (its CSS is in the HTML; styled-components appends at runtime).
+ *
+ * Studio components show and hide parts with styled-components rules that tie, on specificity,
+ * with Sanity UI's atomic classes (`.eBwYdj [data-ui="Select"] { display: none }` against
+ * `.u-…:not([hidden]) { display: inline-block }`), so the later stylesheet wins. Here `sanity` loads
+ * lazily and its CSS lands after styled-components' tag, which showed both the field-group tabs and
+ * their narrow-width select. Other stylesheets move in front of the styled tags; those tags never
+ * move, since moving one would drop the rules styled-components inserts through the CSSOM.
+ */
+export function keepStyledComponentsLast(document: Document) {
+  const head = document.head
+  function reorder() {
+    const styled = head.querySelector('style[data-styled]')
+    if (!styled) return
+    let node = styled.nextElementSibling
+    while (node) {
+      const next = node.nextElementSibling
+      if (isStylesheet(node) && !node.hasAttribute('data-styled')) head.insertBefore(node, styled)
+      node = next
+    }
+  }
+  const observer = new MutationObserver(reorder)
+  observer.observe(head, {childList: true})
+  reorder()
+  return () => observer.disconnect()
+}

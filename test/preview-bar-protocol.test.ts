@@ -32,4 +32,22 @@ describe('isPreviewBarMessage', () => {
     expect(isPreviewBarMessage({type: 'sanity-preview-bar:path', path: 'products/a'})).toBe(false)
     expect(isPreviewBarMessage({type: 'sanity-preview-bar:path', path: '//evil.test/'})).toBe(false)
   })
+
+  test('accepts the panel message with a non-negative width only', () => {
+    expect(isPreviewBarMessage({type: 'sanity-preview-bar:panel', open: true, width: 420})).toBe(
+      true,
+    )
+    expect(isPreviewBarMessage({type: 'sanity-preview-bar:panel', open: false, width: 0})).toBe(
+      true,
+    )
+    for (const data of [
+      {type: 'sanity-preview-bar:panel', open: true},
+      {type: 'sanity-preview-bar:panel', open: 'yes', width: 420},
+      {type: 'sanity-preview-bar:panel', open: true, width: -1},
+      {type: 'sanity-preview-bar:panel', open: true, width: Number.NaN},
+      {type: 'sanity-preview-bar:panel', open: true, width: '420'},
+    ]) {
+      expect(isPreviewBarMessage(data)).toBe(false)
+    }
+  })
 })

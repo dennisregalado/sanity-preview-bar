@@ -15,11 +15,12 @@ Shopify theme preview, made of the Studio's own parts.
   Sanity client, or set `projectId`).
 - **Visual Editor, Hide bar, Exit preview:** exit leaves preview in place, with no reload.
 - **For signed-in editors (Studio layer):** with your Studio config passed to the bar, editors
-  signed in to the embedded Studio get Studio presence (who's online, and an editing ring for
-  whoever has this page's document open), the Studio's own search (native previews and filters),
-  and this page's versions in the perspective switcher (from Presentation's route map), with a dot
-  when the page has unpublished changes. Everyone else gets "Sign in", which opens the Studio's own
-  sign-in.
+  signed in to the embedded Studio get the Studio's own search (native previews and filters).
+  Everyone else gets "Sign in", which opens the Studio's own sign-in.
+- **Document pane (optional):** an **Edit** button opens this page's document in the Studio's own
+  document editor, in a pane on the right of the page: the pane Presentation shows, with the
+  Published / Draft chips, the form, presence, comments and Publish. The page reflows beside it and
+  stays clickable.
 
 Everything is `@sanity/ui`, rendered in a same-origin iframe, so the bar's styles and the site's never
 meet, and **React and Sanity UI never load outside preview mode**. The site side is a small
@@ -213,7 +214,8 @@ The host is a few KB with no dependencies, and loads only in preview.
 ### 5. Studio layer (optional)
 
 ```ts
-// In createPreviewBar: the Presentation tool's `resolve.mainDocuments` list
+// In createPreviewBar: the Presentation tool's `resolve.mainDocuments` list (finds the page's
+// document for the document pane)
 pageDocuments: MAIN_DOCUMENTS,
 
 // src/routes/preview-bar/resolve/+server.ts
@@ -225,6 +227,49 @@ export const GET = previewBar.pageDocument
 On the bar page, pass a loader for your Studio config as the third argument:
 `mountPreviewBar(target, data, {studioConfig: () => import('../../../sanity.config').then((m) => m.default)})`.
 `sanity` and the config load only for signed-in editors.
+
+**Document pane:** add `documentPane: true` to the same options:
+`mountPreviewBar(target, data, {studioConfig, documentPane: true})`. Signed-in editors get an
+**Edit** button (in place of Visual Editor) whenever the page has a document (from
+`pageDocuments`). It slides in the Studio's document pane in a column on the right, top to bottom
+of the viewport, and the bar narrows to sit left of it. The button hides while the pane is open; the
+pane's own × closes it, and `E` (when you're not typing, on the page or in the bar) toggles it. On
+viewports too narrow to keep 360px beside the pane, the pane overlays the page above a full-width
+bar.
+
+```ts
+mountPreviewBar(target, data, {
+  studioConfig,
+  // Optional settings instead of `true`:
+  documentPane: {allFieldsGroup: false},
+})
+```
+
+- `allFieldsGroup: false` hides field groups' **All fields** tab in the pane only (Sanity's
+  `ALL_FIELDS_GROUP` with `hidden: true`, added to the bar's copy of your config). As in the Studio,
+  fields outside every group then don't show.
+
+- The real editor: the same `DocumentPane` Presentation renders, built from public
+  `sanity/structure` exports, with your Studio config's plugins, inputs, actions and badges. Your
+  `studio.components.layout` middleware wraps it (Comments and Tasks keep their providers there), so
+  layout plugins that draw their own UI around the Studio would draw it around the pane too.
+- It edits in the bar's perspective: drafts, or the selected release's version.
+- Reference links open the referenced document in the pane; the pane's × goes back, then closes.
+- Presentation's "Preview this page" locations banner is hidden in the pane: you're already on the
+  page.
+- The pane follows the page: navigating the site opens the new page's document. It stays open
+  across reloads for the tab (`sessionStorage`), and through pages without a document.
+- Drag its left edge (or focus it and use the arrow keys) to resize it, from 320px up to leaving
+  360px of page; the width is remembered (`localStorage`).
+- Studio links inside it: an edit intent opens that document in the pane; links to other tools open
+  the Studio in a new tab.
+- The bar follows the Studio's own appearance setting (light, dark or system), like the pane.
+- The host clips the frame to the bar plus the pane's column (`clip-path`), so the rest of the page
+  stays clickable, and adds `padding-right` to `<html>` so the page reflows. Fixed-position
+  elements on your site don't reflow; dialogs and popovers that reach past the pane unclip the frame
+  while they're open.
+- Anything that streams the form's value (a document-level `form.components.input`, like
+  Presentation's) runs in the pane too, so a realtime preview updates as editors type.
 
 ### 6. Short links
 
@@ -327,6 +372,8 @@ bar's included.
 - **The frame:** the host pins a full-viewport iframe to the bottom of a bar-height wrapper in the top
   layer (a manual popover) that clips it. When a menu, tooltip or dialog opens, the bar asks the host
   to stop clipping, and to clip again 250ms after the last one closes so exit animations play.
+- **Document pane:** the frame's wrapper grows to the viewport and a `clip-path` cuts it to an L
+  (the pane's full-height column plus the narrowed bar); clipped-out areas take no pointer events.
 - **Messages:** the host and bar talk through `postMessage` on the site's own origin only
   (`sanity-preview-bar:*`).
 - **Perspective:** stored in Sanity's own `sanity-preview-perspective` cookie, the one Presentation

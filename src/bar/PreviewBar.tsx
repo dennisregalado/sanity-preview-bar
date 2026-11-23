@@ -2,13 +2,14 @@
 // <style> tags land in the iframe's document, never in the site's.
 import '@sanity/ui/styles.css'
 import CheckmarkCircleIcon from '@sanity/icons/CheckmarkCircle'
+import EditIcon from '@sanity/icons/Edit'
 import ErrorOutlineIcon from '@sanity/icons/ErrorOutline'
 import EllipsisHorizontalIcon from '@sanity/icons/EllipsisHorizontal'
 import EyeClosedIcon from '@sanity/icons/EyeClosed'
 import LeaveIcon from '@sanity/icons/Leave'
 import LinkIcon from '@sanity/icons/Link'
 import SearchIcon from '@sanity/icons/Search'
-import {Button, Card, Flex, Text, ThemeProvider, useMediaIndex, usePrefersDark} from '@sanity/ui'
+import {Button, Card, Flex, Text, ThemeProvider, usePrefersDark} from '@sanity/ui'
 import {Menu, MenuButton} from '@sanity/ui/menu'
 import {Popover} from '@sanity/ui/popover'
 import {buildTheme} from '@sanity/ui/theme'
@@ -19,38 +20,51 @@ import type {PreviewBarData} from '../core/data'
 import {parsePerspective, perspectiveTone, type PreviewPerspective} from '../core/perspective'
 import {isPreviewBarMessage, type PreviewBarMessage} from '../core/protocol'
 import {BarDataContext, useBarData} from './context'
-import {injectStudioDocumentCss} from './document-css'
+import {injectStudioDocumentCss, keepStyledComponentsLast} from './document-css'
 import {Logo} from './logo'
 import {PerspectiveMenu, studioPerspectiveParams} from './PerspectiveMenu'
 import {SearchDialog} from './SearchDialog'
 import {StudioMenuItem} from './StudioMenuItem'
 import {StudioTooltip} from './StudioTooltip'
 import {WorkspaceMenu} from './WorkspaceMenu'
-import {PresenceStack} from './PresenceStack'
 import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
-import {
-  type PageDocumentStatus,
-  type PresenceUser,
-  type StudioConfigLoader,
-  StudioLayer,
-} from './StudioLayer'
+import {useDocumentPaneState} from './pane-state'
+import {type StudioConfigLoader, StudioLayer} from './StudioLayer'
 
 export type {StudioConfigLoader}
 
 /** Client-side options for `mountPreviewBar`. */
 export type PreviewBarOptions = {
   /**
-   * Loads the project's Studio config. With it, signed-in editors get the Studio layer (presence
-   * avatars); without it, the bar works as before.
+   * Loads the project's Studio config. With it, signed-in editors get the Studio layer (the
+   * Studio's own search, and the document pane with `documentPane`); without it, the bar works as
+   * before.
    */
   studioConfig?: StudioConfigLoader
+  /**
+   * An **Edit** button that opens the page's document in the Studio's own document editor, in a
+   * pane on the right of the page (the pane Presentation shows). Needs `studioConfig` and the
+   * server's `pageDocuments`; editors only. Default `false`.
+   */
+  documentPane?: boolean | DocumentPaneOptions
+}
+
+/** `documentPane` settings. */
+export type DocumentPaneOptions = {
+  /**
+   * `false` hides the "All fields" tab of field groups in the pane (Sanity's `ALL_FIELDS_GROUP`
+   * with `hidden: true`, added to the bar's copy of your config only). Default `true`.
+   */
+  allFieldsGroup?: boolean
 }
 
 export type {PreviewBarData}
 
 const theme = buildTheme()
 
-// Sanity UI's space scale has no 10px step: 10px inline padding, 20px from 1024px up.
+// Sanity UI's space scale has no 10px step: 10px inline padding, 20px from 1024px up. Breakpoints
+// follow the bar's own width (`.preview-bar-wide`), not the viewport's: beside the document pane
+// the bar is only as wide as the page.
 const CARD_CSS = `
 .preview-bar-card { padding-inline: 10px; }
 /* HomeButton's StyledCard: radius 2 (3px), no underline, focus ring only for keyboard focus. */
@@ -58,7 +72,7 @@ const CARD_CSS = `
 .preview-search-row[data-active] { background-color: var(--card-muted-bg-color); }
 .preview-bar-home { display: flex; border-radius: 3px; outline: none; text-decoration: none; }
 .preview-bar-home:focus-visible { box-shadow: 0 0 0 1px var(--card-bg-color), 0 0 0 3px var(--card-focus-ring-color); }
-@media (min-width: 1024px) { .preview-bar-card { padding-inline: 20px; } }
+.preview-bar-wide { padding-inline: 20px; }
 /* Brand, perspective switcher, actions. Below 1024px (tablet and phone) a row with the switcher
    after the brand; from 1024px a 1fr / auto / 1fr grid, so the switcher sits on the bar's centre
    whatever the side groups measure. 4px gaps, the Studio navbar's spacing. */
@@ -67,11 +81,9 @@ const CARD_CSS = `
 .preview-bar-center { display: flex; align-items: center; flex: 1; min-width: 0; }
 
 .preview-bar-end { display: flex; align-items: center; gap: 4px; flex: none; }
-@media (min-width: 1024px) {
-  .preview-bar-layout { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
-  .preview-bar-center { justify-self: center; }
-  .preview-bar-end { justify-self: end; }
-}
+.preview-bar-wide .preview-bar-layout { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.preview-bar-wide .preview-bar-center { justify-self: center; }
+.preview-bar-wide .preview-bar-end { justify-self: end; }
 /* The Studio's global scrollbar (GlobalStyleSheet): 12px, a 4px transparent border around a
    border-colour thumb that darkens on hover, transparent track. */
 ::-webkit-scrollbar { width: 12px; height: 12px; }
@@ -79,6 +91,11 @@ const CARD_CSS = `
 ::-webkit-scrollbar-thumb { background-clip: content-box; background-color: var(--card-border-color); border: 4px solid transparent; }
 ::-webkit-scrollbar-thumb:hover { background-color: var(--card-muted-fg-color); }
 ::-webkit-scrollbar-track { background: transparent; }
+/* The document pane's resizer: a 6px strip on its left edge; a 2px focus-colour line while it's
+   hovered, dragged or focused, like the Studio's pane resizer. */
+.preview-bar-pane-resizer { position: absolute; top: 0; bottom: 0; left: 0; width: 6px; cursor: ew-resize; touch-action: none; outline: none; z-index: 1000; }
+.preview-bar-pane-resizer::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: transparent; transition: background-color 0.1s; }
+.preview-bar-pane-resizer:hover::after, .preview-bar-pane-resizer[data-active]::after, .preview-bar-pane-resizer:focus-visible::after { background: var(--card-focus-ring-color, #556bfc); }
 @keyframes preview-bar-spin { to { transform: rotate(360deg); } }
 .preview-bar-spinner { animation: preview-bar-spin 0.6s linear infinite; }
 `
@@ -195,6 +212,94 @@ function overflowWhileHovered(key: string, setOverflow: SetOverflow) {
     onFocus: () => setOverflow(key, true),
     onBlur: () => setOverflow(key, false),
   }
+}
+
+const OVERLAYS = '[data-ui="Dialog"], [data-ui="Popover"], [data-ui="Tooltip"]'
+
+/**
+ * The pane's own overlays are portaled to the frame's body. Dialogs cover the frame, and popovers
+ * or tooltips can reach past the pane's left edge; while any of them does, the host must stop
+ * clipping the frame to the pane, as it does for the bar's menus.
+ */
+function usePaneOverlays(open: boolean, width: number, setOverflow: SetOverflow) {
+  useEffect(() => {
+    if (!open) return
+    let frame = 0
+    function check() {
+      frame = 0
+      const left = window.innerWidth - width
+      const outside = [...document.querySelectorAll<HTMLElement>(OVERLAYS)].some((element) => {
+        if (element.closest('[data-preview-bar-panel]')) return false
+        if (element.dataset.ui === 'Dialog') return true
+        const rect = element.getBoundingClientRect()
+        return rect.width > 0 && rect.left < left - 1
+      })
+      setOverflow('pane-overlay', outside)
+    }
+    const observer = new MutationObserver(() => {
+      frame ||= requestAnimationFrame(check)
+    })
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'data-placement'],
+    })
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+      setOverflow('pane-overlay', false)
+    }
+  }, [open, width, setOverflow])
+}
+
+function isEditable(target: EventTarget | null) {
+  const element = target as HTMLElement | null
+  return Boolean(
+    element?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"]'),
+  )
+}
+
+/**
+ * `E` toggles the document pane, from the bar's frame or (forwarded by the host) the page, unless
+ * the editor is typing. A bare key, like GitHub's `.` and `e`, so it collides with no browser
+ * shortcut.
+ */
+function usePaneShortcut(toggle: () => void, enabled: boolean) {
+  useEffect(() => {
+    if (!enabled) return
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key.toLowerCase() !== 'e' || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.repeat || event.isComposing || isEditable(event.target)) return
+      event.preventDefault()
+      toggle()
+    }
+    function onMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin || event.source !== window.parent) return
+      if (isPreviewBarMessage(event.data) && event.data.type === 'sanity-preview-bar:pane') toggle()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('message', onMessage)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('message', onMessage)
+    }
+  }, [toggle, enabled])
+}
+
+/** An element's width, kept current; the viewport's until it's measured. */
+function useElementWidth(element: HTMLElement | null) {
+  const [width, setWidth] = useState(() => window.innerWidth)
+  useEffect(() => {
+    if (!element) return
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry)
+        setWidth(Math.round(entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width))
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [element])
+  return width
 }
 
 /** The share endpoint refused because Presentation's sharing was turned off after the bar loaded. */
@@ -534,8 +639,11 @@ function useSearchShortcut(open: () => void, enabled: boolean) {
 
 function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}) {
   const path = useHostPath()
-  // Theme media is [360, 600, …]: button labels from 600px up, icon-only below so the bar fits.
-  const showLabels = useMediaIndex() >= 2
+  // The bar's own width (it narrows beside the document pane). Theme media is [360, 600, …]:
+  // button labels from 600px up, icon-only below so the bar fits; the centred grid from 1024px.
+  const [barElement, setBarElement] = useState<HTMLElement | null>(null)
+  const barWidth = useElementWidth(barElement)
+  const showLabels = barWidth >= 600
   // Local state: a switch updates the bar in place while the host refreshes the page around it.
   const [perspective, setPerspective] = useState<PreviewPerspective>(() =>
     parsePerspective(data.perspective),
@@ -553,21 +661,19 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   const editorParams = studioPerspectiveParams(perspective, data.releases)
   // Signed-in editors get Visual Editor and the Studio layer; everyone else gets Sign in.
   const {session, refresh: refreshSession} = useStudioSession(data.projectId)
-  const [presence, setPresence] = useState<PresenceUser[]>([])
   const [signingIn, setSigningIn] = useState(false)
   const signedIn = session.status === 'signed-in'
-  const onlineUsers = signedIn ? withCurrentUser(session.user, presence) : []
   // Signed-in editors search with the Studio's own popover once the Studio layer is ready;
   // everyone else keeps the bar's search.
   const [studioReady, setStudioReady] = useState(false)
   const studioSearch = signedIn && studioReady && Boolean(data.search)
   const searchTypes = (data.search ?? []).flatMap(({kind}) => (kind === 'route' ? [] : [kind]))
 
-  // The page's document (from the Studio's Presentation route map) and its live status.
+  // The page's document (from the Studio's Presentation route map), for the document pane.
   const [pageDocument, setPageDocument] = useState<{_id: string; _type: string} | null>(null)
-  const [documentStatus, setDocumentStatus] = useState<PageDocumentStatus | null>(null)
   useEffect(() => {
-    if (!signedIn || !studioReady || !data.pageDocuments || path === null) return
+    if (!options.documentPane || !signedIn || !studioReady || !data.pageDocuments || path === null)
+      return
     let cancelled = false
     fetch(`${data.basePath}/document?${new URLSearchParams({path})}`)
       .then((response) => (response.ok ? response.json() : {document: null}))
@@ -580,7 +686,32 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
     return () => {
       cancelled = true
     }
-  }, [signedIn, studioReady, data.pageDocuments, data.basePath, path])
+  }, [options.documentPane, signedIn, studioReady, data.pageDocuments, data.basePath, path])
+
+  // The document pane (`pane-state.ts`): it follows the page and survives reloads for this tab.
+  const panelEnabled = Boolean(options.documentPane && options.studioConfig)
+  const paneOptions: DocumentPaneOptions =
+    typeof options.documentPane === 'object' ? options.documentPane : {}
+  const pane = useDocumentPaneState({
+    enabled: panelEnabled && signedIn,
+    pageDocument,
+    setOverflow,
+  })
+  const barBesidePanel = pane.visible && pane.beside
+  useEffect(() => {
+    postToHost({
+      type: 'sanity-preview-bar:panel',
+      open: pane.visible,
+      width: pane.visible ? pane.width : 0,
+    })
+  }, [pane.visible, pane.width])
+  usePaneOverlays(pane.visible, pane.width, setOverflow)
+  usePaneShortcut(pane.toggle, panelEnabled && signedIn && (pane.open || pane.canOpen))
+  function openPanel() {
+    // The button unmounts under the pointer, with no mouseleave to release its tooltip overflow.
+    setOverflow('edit-button', false)
+    pane.openPane()
+  }
 
   function closeStudioSearch() {
     setSearchOpen(false)
@@ -619,6 +750,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
       },
     )
   }
+  const studioPerspective = editorParams.toString()
   editorParams.set('preview', path ?? '/')
 
   return (
@@ -642,8 +774,14 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
         padding={3}
         // Only the top edge: the bar spans the viewport, so side and bottom borders read as a box.
         borderTop
-        className="preview-bar-card"
-        style={{width: '100%'}}
+        ref={setBarElement}
+        className={barWidth >= 1024 ? 'preview-bar-card preview-bar-wide' : 'preview-bar-card'}
+        // Beside the open pane the bar narrows to the page's width, left of the pane.
+        style={
+          barBesidePanel
+            ? {width: `calc(100% - ${pane.width}px)`, alignSelf: 'flex-start'}
+            : {width: '100%'}
+        }
       >
         <div className="preview-bar-layout">
           <div className="preview-bar-start">
@@ -657,16 +795,10 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
               onOpenChange={(open) => setOverflow('perspective', open)}
               onChange={setPerspective}
               onRefresh={refreshHost}
-              page={signedIn ? documentStatus : null}
             />
           </div>
           {/* Shopify's preview bar: copy link, the "…" menu, then the primary pill. */}
           <div className="preview-bar-end">
-            <PresenceStack
-              users={onlineUsers}
-              pageEditors={signedIn ? (documentStatus?.editors ?? []) : []}
-              onHoverChange={(hovered) => setOverflow('presence', hovered)}
-            />
             {data.links && (
               <CopyPreviewLink
                 sharing={data.sharing}
@@ -675,6 +807,22 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
               />
             )}
             <MoreMenu setOverflow={setOverflow} />
+            {/* Hidden while the pane is open: the pane's own × closes it. */}
+            {panelEnabled && signedIn && pane.canOpen && !pane.open && (
+              <span style={{display: 'flex'}} {...overflowWhileHovered('edit-button', setOverflow)}>
+                <StudioTooltip content="Edit this page" hotkeys={['E']}>
+                  {/* The bar's primary pill (white), in place of Visual Editor. */}
+                  <Button
+                    mode="default"
+                    padding={2}
+                    icon={EditIcon}
+                    text={showLabels ? 'Edit' : undefined}
+                    aria-label="Edit this page"
+                    onClick={openPanel}
+                  />
+                </StudioTooltip>
+              </span>
+            )}
             {session.status === 'signed-out' ? (
               <Button
                 mode="default"
@@ -683,7 +831,7 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
                 disabled={signingIn}
                 onClick={signIn}
               />
-            ) : (
+            ) : panelEnabled ? null : (
               <Button
                 as="a"
                 mode="default"
@@ -698,21 +846,36 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
           </div>
         </div>
       </Card>
+      {/* Zero-size, so nothing the Studio renders in place (its loading block) moves the bar; the
+          pane and popovers are fixed or portaled. */}
       {signedIn && options.studioConfig && (
-        <StudioLayer
-          load={options.studioConfig}
-          studioPath={data.studioPath}
-          onPresence={setPresence}
-          onReady={() => setStudioReady(true)}
-          document={pageDocument}
-          onDocumentStatus={setDocumentStatus}
-          search={{
-            open: studioSearch && searchOpen,
-            types: searchTypes,
-            onClose: closeStudioSearch,
-            onSelect: openStudioSearchResult,
-          }}
-        />
+        <div style={{position: 'absolute', width: 0, height: 0}}>
+          <StudioLayer
+            load={options.studioConfig}
+            studioPath={data.studioPath}
+            perspective={studioPerspective}
+            allFieldsGroup={paneOptions.allFieldsGroup !== false}
+            panel={
+              panelEnabled
+                ? {
+                    stack: pane.open ? pane.stack : [],
+                    onChange: pane.change,
+                    width: pane.width,
+                    fullHeight: pane.beside,
+                    resize: pane.resize,
+                    onExitComplete: pane.onExitComplete,
+                  }
+                : undefined
+            }
+            onReady={() => setStudioReady(true)}
+            search={{
+              open: studioSearch && searchOpen,
+              types: searchTypes,
+              onClose: closeStudioSearch,
+              onSelect: openStudioSearchResult,
+            }}
+          />
+        </div>
       )}
       <AnimatePresence onExitComplete={() => setOverflow('search', false)}>
         {searchOpen && !studioSearch && data.search && (
@@ -730,8 +893,38 @@ function Bar({data, options}: {data: PreviewBarData; options: PreviewBarOptions}
   )
 }
 
+/** Where the Studio keeps its appearance setting (`light`, `dark` or `system`), on this origin. */
+const STUDIO_SCHEME_KEY = 'sanityStudio:ui:colorScheme'
+
+function readStudioScheme(): 'light' | 'dark' | 'system' {
+  try {
+    const value = window.localStorage.getItem(STUDIO_SCHEME_KEY)
+    return value === 'light' || value === 'dark' ? value : 'system'
+  } catch {
+    return 'system'
+  }
+}
+
+/**
+ * The Studio's own appearance setting, so the bar matches the Studio (and the document pane, which
+ * reads the same setting) when an editor picked light or dark there. Follows changes made in a
+ * Studio tab through `storage` events; "system" follows the OS.
+ */
+function useStudioScheme() {
+  const prefersDark = usePrefersDark()
+  const [setting, setSetting] = useState(readStudioScheme)
+  useEffect(() => {
+    function onStorage(event: StorageEvent) {
+      if (event.key === STUDIO_SCHEME_KEY || event.key === null) setSetting(readStudioScheme())
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+  return setting === 'system' ? (prefersDark ? 'dark' : 'light') : setting
+}
+
 function App({data, options}: {data: PreviewBarData; options: PreviewBarOptions}) {
-  const scheme = usePrefersDark() ? 'dark' : 'light'
+  const scheme = useStudioScheme()
   return (
     <ThemeProvider theme={theme} scheme={scheme}>
       <BarDataContext.Provider value={data}>
@@ -749,22 +942,15 @@ export function mountPreviewBar(
   options: PreviewBarOptions = {},
 ) {
   injectStudioDocumentCss(element.ownerDocument, {transparent: true})
+  const stopReordering = keepStyledComponentsLast(element.ownerDocument)
   const root = createRoot(element)
   root.render(
     <StrictMode>
       <App data={data} options={options} />
     </StrictMode>,
   )
-  return () => root.unmount()
-}
-
-/** The signed-in editor first, then everyone else the Studio reports online. */
-function withCurrentUser(
-  user: {id: string; name?: string; profileImage?: string},
-  others: PresenceUser[],
-): PresenceUser[] {
-  return [
-    {id: user.id, name: user.name, imageUrl: user.profileImage},
-    ...others.filter((other) => other.id !== user.id),
-  ]
+  return () => {
+    root.unmount()
+    stopReordering()
+  }
 }

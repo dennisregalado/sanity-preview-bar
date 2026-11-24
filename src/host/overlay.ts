@@ -186,12 +186,17 @@ const STYLE = `
   box-sizing: border-box;
   max-width: min(480px, calc(100vw - 8px));
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: 3px 3px 0 0;
   background: var(--accent);
   color: #fff;
   white-space: nowrap;
 }
+.tab[data-place="inside"] { border-radius: 0 0 3px 0; }
+.tab[data-place="below"] { border-radius: 0 0 3px 3px; }
 .tab[data-missing] { background: var(--drift); }
+/* Square the box's corner where the tab joins it. */
+.box[data-tab="above"] { border-top-left-radius: 0; }
+.box[data-tab="below"] { border-bottom-left-radius: 0; }
 .crumbs {
   flex: 0 1 auto;
   min-width: 0;
@@ -201,7 +206,8 @@ const STYLE = `
 }
 .crumbs:empty { display: none; }
 .label { flex: none; font-weight: 600; }
-.type { flex: none; opacity: 0.72; }
+.note { flex: none; opacity: 0.85; }
+.note:empty { display: none; }
 .toast {
   position: absolute;
   left: 50%;
@@ -278,9 +284,9 @@ export function mountClickToEdit(options: ClickToEditOptions): ClickToEdit {
   crumbs.className = 'crumbs'
   const label = document.createElement('span')
   label.className = 'label'
-  const type = document.createElement('span')
-  type.className = 'type'
-  tab.append(crumbs, label, type)
+  const note = document.createElement('span')
+  note.className = 'note'
+  tab.append(crumbs, label, note)
   const toast = document.createElement('div')
   toast.className = 'toast'
   shadow.append(style, marks, box, tab, toast)
@@ -355,7 +361,7 @@ export function mountClickToEdit(options: ClickToEditOptions): ClickToEdit {
     crumbs.textContent = above.map((item) => labelOf(item.node)).join(' › ')
     label.textContent = labelOf(target.node)
     const missing = labels.get(nodeKey(target.node))?.missing
-    type.textContent = missing ? `${target.node.type} · not in the document` : target.node.type
+    note.textContent = missing ? 'not in the document' : ''
     tab.toggleAttribute('data-missing', Boolean(missing))
     tab.style.display = 'flex'
     tabWidth = tab.offsetWidth
@@ -440,7 +446,15 @@ export function mountClickToEdit(options: ClickToEditOptions): ClickToEdit {
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth
     const left = Math.max(4, Math.min(rect.left, viewportWidth - tabWidth - 4))
     let top = rect.top - tabHeight
-    if (top < 0) top = rect.height > tabHeight * 2 ? Math.max(rect.top, 0) : rect.bottom
+    let place = 'above'
+    if (top < 0) {
+      place = rect.height > tabHeight * 2 ? 'inside' : 'below'
+      top = place === 'inside' ? Math.max(rect.top, 0) : rect.bottom
+    }
+    tab.dataset.place = place
+    // The box's corner squares off only where the tab actually meets it.
+    if (left === rect.left && place !== 'inside') box.dataset.tab = place
+    else delete box.dataset.tab
     tab.style.display = 'flex'
     tab.style.transform = `translate(${left}px, ${top}px)`
   }

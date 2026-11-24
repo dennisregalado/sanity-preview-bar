@@ -16,6 +16,22 @@ import {StudioTooltip} from './StudioTooltip'
 /** `useEnvAwareSanityWebsiteUrl` for production projects. */
 const SANITY_WEBSITE_URL = 'https://www.sanity.io'
 
+/** `ManageMenu`'s style on its buttons: the outline the Studio draws around them. */
+const MANAGE_BUTTON_STYLE = {'--card-border-color': 'unset'} as CSSProperties
+
+/**
+ * The Studio's `WorkspacePreviewIcon` at `size="large"`: a 41×41 box. A workspace icon is drawn to
+ * sit in it (Studio icons often centre themselves with `margin: auto`), so without the box the icon
+ * spreads across the menu.
+ */
+const ICON_BOX_STYLE: CSSProperties = {
+  display: 'flex',
+  flex: 'none',
+  width: 41,
+  height: 41,
+  borderRadius: '0.25rem',
+}
+
 export function WorkspaceMenu({
   onOpenChange,
   onHoverChange,
@@ -106,7 +122,13 @@ export function WorkspaceMenu({
               <Menu padding={0} style={{maxWidth: 350, minWidth: 250, overflowY: 'hidden'}}>
                 <Flex direction="column" paddingX={4} paddingTop={4} paddingBottom={4}>
                   <Flex align="center">
-                    {brand.icon ?? (brand.logo && <Logo logo={brand.logo} size="large" />)}
+                    {brand.icon ? (
+                      <span aria-hidden="true" style={ICON_BOX_STYLE}>
+                        {brand.icon}
+                      </span>
+                    ) : (
+                      brand.logo && <Logo logo={brand.logo} size="large" />
+                    )}
                     <Flex direction="column" gap={2} marginLeft={2}>
                       {brand.project && (
                         <Text size={0} as="div">
@@ -119,8 +141,6 @@ export function WorkspaceMenu({
                     </Flex>
                   </Flex>
                   {manageUrl && (
-                    // Borderless, as the Studio draws them. Its `--card-border-color: unset` is
-                    // for its own button; on this Sanity UI it would draw a border instead.
                     <Flex justify="flex-start" gap={3} paddingTop={4}>
                       <Button
                         as="a"
@@ -132,6 +152,7 @@ export function WorkspaceMenu({
                         padding={2}
                         icon={CogIcon}
                         text="Manage project"
+                        style={MANAGE_BUTTON_STYLE}
                       />
                       <Button
                         as="a"
@@ -143,6 +164,7 @@ export function WorkspaceMenu({
                         padding={2}
                         icon={AddUserIcon}
                         text="Invite members"
+                        style={MANAGE_BUTTON_STYLE}
                       />
                     </Flex>
                   )}

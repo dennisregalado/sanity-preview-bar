@@ -22,6 +22,7 @@ import {
   type PreviewPerspective,
 } from '../core/perspective'
 import {
+  isInspectorShortcut,
   isPreviewBarMessage,
   type PaneSide,
   type PreviewBarMessage,
@@ -38,12 +39,23 @@ import {StudioMenuItem} from './StudioMenuItem'
 import {StudioTooltip} from './StudioTooltip'
 import {WorkspaceMenu} from './WorkspaceMenu'
 import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
-import {publishedId, useDocumentPaneState} from './pane-state'
+import {publishedId, store, useDocumentPaneState} from './pane-state'
+
+/** The Visual Editor's inspector (click-to-edit) is on for this tab. */
+const INSPECTOR_KEY = 'sanity-preview-bar:inspector'
+
+function readInspector() {
+  try {
+    return window.sessionStorage.getItem(INSPECTOR_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 import {InspectorButton} from './InspectorButton'
 import {NativePagePreview, PagePicker, pageFallbackTitle} from './PagePicker'
 import {ViewportButton} from './ViewportButton'
 import {ShareMenu, type StudioSharingClient} from './ShareMenu'
-import {type NodeDescriber, type StudioConfigLoader, StudioLayer} from './StudioLayer'
+import {type StudioConfigLoader, StudioLayer} from './StudioLayer'
 
 export type {StudioConfigLoader}
 
@@ -731,36 +743,34 @@ function Bar({
   }, [pane.open, pane.width, paneSide])
   usePaneOverlays(pane.open, pane.width, paneSide, setOverflow)
   usePaneShortcut(pane.toggle, panelEnabled && signedIn && (pane.open || pane.canOpen))
-  // Click-to-edit on the page (the host's overlay, on while the pane is open).
-  const editInPane = pane.edit
+  // The inspector (Visual Editor only): click-to-edit on the framed page, from the button, ⌘⇧I
+  // here, or ⌘⇧I on the page (the tool forwards it). Remembered for the tab.
+  const [inspector, setInspector] = useState(() => inTool && readInspector())
+  const toggleInspector = useCallback(() => {
+    setOverflow('inspector', false)
+    setInspector((active) => !active)
+  }, [setOverflow])
   useEffect(() => {
-    if (!panelEnabled || !signedIn) return
-    return host.subscribe((message) => {
-      if (message.type === 'sanity-preview-bar:edit') editInPane(message)
-    })
-  }, [panelEnabled, signedIn, editInPane])
-  // Labels and the drift check for the host's overlay, from the Studio layer's schema and client.
-  const describer = useRef<NodeDescriber | null>(null)
-  const setDescriber = useCallback((next: NodeDescriber | null) => {
-    describer.current = next
-  }, [])
+    if (!inTool) return
+    store('sessionStorage', INSPECTOR_KEY, inspector ? '1' : null)
+    postToHost({type: 'sanity-preview-bar:inspector', active: inspector})
+  }, [inTool, inspector])
   useEffect(() => {
-    if (!panelEnabled || !signedIn) return
-    return host.subscribe((message) => {
-      if (message.type !== 'sanity-preview-bar:describe') return
-      describer
-        .current?.(message.nodes)
-        .then((labels) => postToHost({type: 'sanity-preview-bar:labels', labels}))
-        .catch((error: unknown) =>
-          console.warn('sanity-preview-bar: could not describe the page', error),
-        )
+    if (!inTool) return
+    function onKeyDown(event: KeyboardEvent) {
+      if (!isInspectorShortcut(event)) return
+      event.preventDefault()
+      toggleInspector()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    const unsubscribe = host.subscribe((message) => {
+      if (message.type === 'sanity-preview-bar:toggle-inspector') toggleInspector()
     })
-  }, [panelEnabled, signedIn])
-  const reportFocus = useCallback(
-    (focus: {id: string; path: string} | null) =>
-      postToHost({type: 'sanity-preview-bar:focus', id: focus?.id ?? '', path: focus?.path ?? ''}),
-    [],
-  )
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      unsubscribe()
+    }
+  }, [inTool, toggleInspector])
   // "Create new document": the Studio's popover, then the new document in the pane.
   const [newDocumentOpen, setNewDocumentOpen] = useState(false)
   const [newDocumentAnchor, setNewDocumentAnchor] = useState<HTMLElement | null>(null)
@@ -979,7 +989,13 @@ function Bar({
                 onHoverChange={(hovered) => setOverflow('viewport', hovered)}
               />
             )}
-            <InspectorButton onHoverChange={(hovered) => setOverflow('inspector', hovered)} />
+            {inTool && (
+              <InspectorButton
+                active={inspector}
+                onToggle={toggleInspector}
+                onHoverChange={(hovered) => setOverflow('inspector', hovered)}
+              />
+            )}
             {data.links && (
               <ShareMenu
                 sharing={data.sharing}
@@ -1080,7 +1096,6 @@ function Bar({
             perspective={studioPerspective}
             onPerspectiveChange={switchPerspective}
             onSharingClient={setStudioSharing}
-            onDescriber={panelEnabled ? setDescriber : undefined}
             newDocument={{
               open: newDocumentOpen,
               anchor: newDocumentAnchor,
@@ -1098,7 +1113,6 @@ function Bar({
                     barPosition: position,
                     side: paneSide,
                     resize: pane.resize,
-                    onFocusPath: reportFocus,
                   }
                 : undefined
             }

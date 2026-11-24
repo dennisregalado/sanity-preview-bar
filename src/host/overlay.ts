@@ -21,8 +21,9 @@
  *   only when the set of annotations changed) and described; any whose path doesn't resolve in the
  *   document gets a dashed red outline and a console warning.
  *
- * Keys: ⌘\ / Ctrl+\ turns it off and on (remembered for the tab); holding Alt/Option hides the
- * outlines and lets clicks through to the page; Esc clears the hover until the pointer moves.
+ * It's on only while the host says so (`setActive`): in the Visual Editor tool's frame, while the
+ * bar's inspector is on. Holding Alt/Option hides the outlines and lets clicks through to the page;
+ * Esc clears the hover until the pointer moves.
  */
 import type {NodeLabel} from '../core/node-labels'
 import {MAX_DESCRIBE_NODES} from '../core/protocol'
@@ -43,8 +44,8 @@ export type ClickToEditOptions = {
    */
   onDescribe?: (nodes: SanityNode[]) => void
   /**
-   * Whether click-to-edit applies right now (the site: while the document pane is open). Default
-   * `true`. ⌘\ / Ctrl+\ turns it off on top of this; see `setActive`.
+   * Whether click-to-edit is on to begin with (the Visual Editor: while the inspector is on).
+   * Default `true`; see `setActive`.
    */
   active?: boolean
   /** The outline layer's z-index. Default just below the bar's frame. */
@@ -67,13 +68,10 @@ const SELECTOR = `[${SANITY_NODE_ATTRIBUTE}]`
 /** One below the bar's wrapper (`2147483000`). */
 const OVERLAY_Z_INDEX = 2147482999
 const OVERLAY_TAG = 'sanity-preview-bar-overlay'
-/** `'0'` while the editor has turned click-to-edit off with ⌘\ for this tab. */
-const ENABLED_KEY = 'sanity-preview-bar:click-to-edit'
 /** Frames the boxes must hold still before the loop stops (smooth scrolling, transitions). */
 const SETTLE_FRAMES = 20
 /** Ancestors shown in the label's breadcrumb. */
 const MAX_CRUMBS = 3
-const TOAST_MS = 1400
 /** How often, while active, the page is checked for new or changed annotations (when idle). */
 const SCAN_INTERVAL_MS = 4000
 /** Most outlines drawn for focus or drift at once. */
@@ -115,27 +113,6 @@ function scanPage() {
 }
 
 const nodeKey = (node: {id: string; path: string}) => `${node.id}\n${node.path}`
-
-function readEnabled() {
-  try {
-    return window.sessionStorage.getItem(ENABLED_KEY) !== '0'
-  } catch {
-    return true
-  }
-}
-
-function storeEnabled(enabled: boolean) {
-  try {
-    if (enabled) window.sessionStorage.removeItem(ENABLED_KEY)
-    else window.sessionStorage.setItem(ENABLED_KEY, '0')
-  } catch {
-    // Storage blocked: the toggle lasts until the page reloads.
-  }
-}
-
-function isMac() {
-  return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
-}
 
 function prefersReducedMotion() {
   return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
@@ -186,12 +163,17 @@ const STYLE = `
   box-sizing: border-box;
   max-width: min(480px, calc(100vw - 8px));
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: 3px 3px 0 0;
   background: var(--accent);
   color: #fff;
   white-space: nowrap;
 }
+.tab[data-place="inside"] { border-radius: 0 0 3px 0; }
+.tab[data-place="below"] { border-radius: 0 0 3px 3px; }
 .tab[data-missing] { background: var(--drift); }
+/* Square the box's corner where the tab joins it. */
+.box[data-tab="above"] { border-top-left-radius: 0; }
+.box[data-tab="below"] { border-bottom-left-radius: 0; }
 .crumbs {
   flex: 0 1 auto;
   min-width: 0;
@@ -201,28 +183,12 @@ const STYLE = `
 }
 .crumbs:empty { display: none; }
 .label { flex: none; font-weight: 600; }
-.type { flex: none; opacity: 0.72; }
-.toast {
-  position: absolute;
-  left: 50%;
-  bottom: 66px;
-  transform: translateX(-50%);
-  padding: 6px 10px;
-  border-radius: 4px;
-  background: rgb(19 20 27 / 0.92);
-  color: #fff;
-  font-size: 12px;
-  opacity: 0;
-  transition: opacity 150ms ease-out;
-  white-space: nowrap;
-}
-.toast[data-show] { opacity: 1; }
-@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+.note { flex: none; opacity: 0.85; }
+.note:empty { display: none; }
 `
 
 export function mountClickToEdit(options: ClickToEditOptions): ClickToEdit {
   let available = options.active ?? true
-  let enabled = readEnabled()
   let destroyed = false
 
   /** The pointer's last position in the viewport, and what it was over. */
@@ -278,15 +244,13 @@ export function mountClickToEdit(options: ClickToEditOptions): ClickToEdit {
   crumbs.className = 'crumbs'
   const label = document.createElement('span')
   label.className = 'label'
-  const type = document.createElement('span')
-  type.className = 'type'
-  tab.append(crumbs, label, type)
-  const toast = document.createElement('div')
-  toast.className = 'toast'
-  shadow.append(style, marks, box, tab, toast)
+  const note = document.createElement('span')
+  note.className = 'note'
+  tab.append(crumbs, label, note)
+  shadow.append(style, marks, box, tab)
   document.body.appendChild(layer)
 
-  const isActive = () => available && enabled && !destroyed
+  const isActive = () => available && !destroyed
 
   function schedule() {
     stableFrames = 0
@@ -355,7 +319,7 @@ export function mountClickToEdit(options: ClickToEditOptions): ClickToEdit {
     crumbs.textContent = above.map((item) => labelOf(item.node)).join(' › ')
     label.textContent = labelOf(target.node)
     const missing = labels.get(nodeKey(target.node))?.missing
-    type.textContent = missing ? `${target.node.type} · not in the document` : target.node.type
+    note.textContent = missing ? 'not in the document' : ''
     tab.toggleAttribute('data-missing', Boolean(missing))
     tab.style.display = 'flex'
     tabWidth = tab.offsetWidth
@@ -440,7 +404,15 @@ export function mountClickToEdit(options: ClickToEditOptions): ClickToEdit {
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth
     const left = Math.max(4, Math.min(rect.left, viewportWidth - tabWidth - 4))
     let top = rect.top - tabHeight
-    if (top < 0) top = rect.height > tabHeight * 2 ? Math.max(rect.top, 0) : rect.bottom
+    let place = 'above'
+    if (top < 0) {
+      place = rect.height > tabHeight * 2 ? 'inside' : 'below'
+      top = place === 'inside' ? Math.max(rect.top, 0) : rect.bottom
+    }
+    tab.dataset.place = place
+    // The box's corner squares off only where the tab actually meets it.
+    if (left === rect.left && place !== 'inside') box.dataset.tab = place
+    else delete box.dataset.tab
     tab.style.display = 'flex'
     tab.style.transform = `translate(${left}px, ${top}px)`
   }
@@ -522,14 +494,6 @@ export function mountClickToEdit(options: ClickToEditOptions): ClickToEdit {
       frame = requestAnimationFrame(tick)
   }
 
-  let toastTimer: ReturnType<typeof setTimeout> | undefined
-  function showToast(text: string) {
-    toast.textContent = text
-    toast.setAttribute('data-show', '')
-    clearTimeout(toastTimer)
-    toastTimer = setTimeout(() => toast.removeAttribute('data-show'), TOAST_MS)
-  }
-
   function onPointerMove(event: PointerEvent) {
     pointer = {x: event.clientX, y: event.clientY}
     altHeld = event.altKey
@@ -571,15 +535,6 @@ export function mountClickToEdit(options: ClickToEditOptions): ClickToEdit {
       schedule()
       return
     }
-    const backslash = event.key === '\\' || event.code === 'Backslash'
-    if (!backslash || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
-    if (!available || destroyed) return
-    event.preventDefault()
-    enabled = !enabled
-    storeEnabled(enabled)
-    const shortcut = isMac() ? '⌘\\' : 'Ctrl+\\'
-    showToast(enabled ? `Click to edit on · ${shortcut}` : `Click to edit off · ${shortcut}`)
-    activated()
   }
 
   function onKeyUp(event: KeyboardEvent) {
@@ -641,7 +596,7 @@ export function mountClickToEdit(options: ClickToEditOptions): ClickToEdit {
     if (pressed || interceptable(event)) event.preventDefault()
   }
 
-  /** Active again (the pane opened, ⌘\): hover where the pointer is, outline focus, rescan. */
+  /** On again (the inspector): hover where the pointer is, outline focus, rescan. */
   function activated() {
     pressed = null
     stopScanning()
@@ -709,7 +664,6 @@ export function mountClickToEdit(options: ClickToEditOptions): ClickToEdit {
       destroyed = true
       stopScanning()
       cancelAnimationFrame(frame)
-      clearTimeout(toastTimer)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerout', onPointerOut, passiveCapture)
       window.removeEventListener('scroll', onViewportChange, passiveCapture)

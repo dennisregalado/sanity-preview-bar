@@ -506,6 +506,8 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
   }, [])
 
   // Messages from the bar (in process) and the framed site (`postMessage`).
+  /** The bar's inspector, resent to the framed page after each load. */
+  const inspectorRef = useRef(false)
   const latest = useRef({path, columnOpen, studioSelection, mainDocument, stack})
   latest.current = {path, columnOpen, studioSelection, mainDocument, stack}
   pathRef.current = path
@@ -563,6 +565,10 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
         setStack([{id: main.id, type: main.type, params: {}}])
         break
       }
+      case 'sanity-preview-bar:inspector':
+        inspectorRef.current = message.active
+        postToSite(message)
+        break
       case 'sanity-preview-bar:studio-home':
         // The workspace's root, through the Studio's router (its default tool), no reload.
         routerRef.current.navigateUrl({path: basePathRef.current || '/'})
@@ -578,6 +584,8 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
       switch (message.type) {
         case 'sanity-preview-bar:frame-path': {
           setPath(message.path)
+          // A new page in the frame starts with click-to-edit off.
+          postToSite({type: 'sanity-preview-bar:inspector', active: inspectorRef.current})
           postToBar({type: 'sanity-preview-bar:path', path: message.path})
           // The Studio's URL follows the page, as Presentation's `?preview=` does.
           const {state, navigate} = routerRef.current
@@ -604,6 +612,9 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
           applyEdit(base, message, main?.id ?? null, setStack)
           break
         }
+        case 'sanity-preview-bar:toggle-inspector':
+          postToBar(message)
+          break
         case 'sanity-preview-bar:describe':
           describerRef
             .current(message.nodes)

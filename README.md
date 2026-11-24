@@ -477,24 +477,24 @@ attribute without a path isn't a target.
 Hovering a marked element outlines it and labels its field (with the editable elements above it as
 a breadcrumb); clicking it opens that document in the document pane at the path. The page's own
 document opens there (an array item opens its editor, a field gets focus); any other document
-opens above it in the pane, and × goes back. On the site this is on while the document pane is
-open; in the Visual Editor tool's frame it's always on.
+opens above it in the pane, and × goes back. It works in the Visual Editor tool only, while the
+bar's inspector is on (its "Activate inspector" button, or <kbd>⌘⇧I</kbd> / <kbd>Ctrl+Shift+I</kbd>
+in the bar or on the page; remembered for the tab). The site's own preview bar has no inspector.
 
 - **Labels** are the Studio's own titles: the section's type and the field (`Image Hero › Title`),
-  a block by its style (`Heading 1`), a reference by what it points to. The bar or the Visual Editor
-  resolves them from the schema and the document, so the schema never ships to the page.
+  a block by its style (`Heading 1`), a reference by what it points to. The Visual Editor resolves
+  them from the schema and the document, so the schema never ships to the page.
 - **Focus from the pane:** the field the editor is in is outlined on the page, and scrolled into
   view when it's off screen. A field without its own annotation outlines the nearest one around it.
-- **Drift check:** while click-to-edit is on, every annotation on the page is checked against the
+- **Drift check:** while the inspector is on, every annotation on the page is checked against the
   schema and the document (when the page is idle, and again when its annotations change). One that
   doesn't resolve, say a field renamed in the schema but not in the component, gets a dashed red
   outline, a red label and a console warning.
 
-- <kbd>⌘\</kbd> / <kbd>Ctrl+\</kbd> turns it off and on (remembered for the tab).
 - Hold <kbd>Alt</kbd> / <kbd>⌥</kbd> to hide the outlines and let clicks through to the page.
 - <kbd>Esc</kbd> clears the hover outline until the pointer moves.
 
-Pass `clickToEdit: false` to `mountPreviewBarHost` or `mountPreviewBarFrame` to turn it off.
+Pass `clickToEdit: false` to `mountPreviewBarFrame` to leave it out.
 `mountClickToEdit` (from `sanity-preview-bar/host`) runs the engine on its own; `npm run example`
 serves a demo page.
 

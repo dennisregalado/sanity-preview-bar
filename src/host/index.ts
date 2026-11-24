@@ -13,10 +13,11 @@
  * beside it. Clipped-out areas take no pointer events, so the rest of the page stays clickable,
  * and the page gets padding on the pane's side so its content reflows beside the pane.
  *
- * Click-to-edit (`overlay.ts`) runs while the pane is open: clicking an element marked with
- * `data-sanity` opens its document and field in the pane.
+ * Click-to-edit (`overlay.ts`) runs only in the Visual Editor tool's frame (`mountPreviewBarFrame`),
+ * not on the site.
  */
 import {
+  isInspectorShortcut,
   isPreviewBarMessage,
   PREVIEW_BAR_HEIGHT,
   PREVIEW_BAR_ROUTE,
@@ -44,11 +45,6 @@ export type PreviewBarHostOptions = {
    * sit under the bar.
    */
   position?: PreviewBarPosition
-  /**
-   * Click-to-edit while the document pane is open: hovering an element with `data-sanity`
-   * outlines it, and clicking it opens that document and field in the pane. Default `true`.
-   */
-  clickToEdit?: boolean
 }
 
 export type PreviewBarHost = {
@@ -163,16 +159,6 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
   document.body.appendChild(wrapper)
   if ('showPopover' in wrapper) wrapper.showPopover()
 
-  // Click-to-edit, from when the bar says the pane is open.
-  const clickToEdit =
-    options.clickToEdit === false
-      ? null
-      : mountClickToEdit({
-          active: false,
-          onEdit: (node) => post(editMessage(node)),
-          onDescribe: (nodes) => post({type: 'sanity-preview-bar:describe', nodes}),
-        })
-
   // Reserve room so the bar never covers the footer (or, at the top, the start of the page).
   const root = document.documentElement
   root.style.setProperty(`padding-${position}`, `${PREVIEW_BAR_HEIGHT}px`)
@@ -219,13 +205,6 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
         panelWidth = event.data.open ? Math.min(event.data.width, window.innerWidth) : 0
         panelSide = event.data.side
         layout()
-        clickToEdit?.setActive(event.data.open)
-        break
-      case 'sanity-preview-bar:labels':
-        clickToEdit?.setLabels(event.data.labels)
-        break
-      case 'sanity-preview-bar:focus':
-        clickToEdit?.setFocus(event.data)
         break
       case 'sanity-preview-bar:navigate':
         void options.navigate(event.data.href)
@@ -267,7 +246,6 @@ export function mountPreviewBarHost(options: PreviewBarHostOptions): PreviewBarH
     window.removeEventListener('message', onMessage)
     window.removeEventListener('keydown', onKeyDown)
     window.removeEventListener('resize', onResize)
-    clickToEdit?.destroy()
     root.style.removeProperty(`padding-${position}`)
     root.style.removeProperty('padding-left')
     root.style.removeProperty('padding-right')
@@ -292,8 +270,9 @@ export type PreviewBarFrameOptions = {
   /** The current path and query. Default `location.pathname + location.search`. */
   path?: string
   /**
-   * Click-to-edit: hovering an element with `data-sanity` outlines it, and clicking it opens that
-   * document and field in the tool's pane. Default `true`.
+   * Click-to-edit while the bar's inspector is on (its button or ⌘⇧I): hovering an element with
+   * `data-sanity` outlines it, and clicking it opens that document and field in the tool's pane.
+   * Default `true`; `false` leaves it out, and the inspector does nothing.
    */
   clickToEdit?: boolean
 }
@@ -303,7 +282,7 @@ export type PreviewBarFrameOptions = {
  * here (the tool shows it above the frame), just the tool's messages. The page reports its path
  * on load and after every navigation (`setPath`), reruns its data when the bar switches
  * perspective, and navigates when a search result is picked. Only the parent window on this
- * origin is listened to. Click-to-edit is always on here (⌘\ / Ctrl+\ turns it off).
+ * origin is listened to. Click-to-edit follows the bar's inspector; ⌘⇧I on the page toggles it.
  */
 export function mountPreviewBarFrame(options: PreviewBarFrameOptions): PreviewBarHost {
   let path = options.path ?? currentPath()
@@ -328,6 +307,9 @@ export function mountPreviewBarFrame(options: PreviewBarFrameOptions): PreviewBa
           .then(() => options.refresh())
           .finally(() => post({type: 'sanity-preview-bar:refreshed'}))
         break
+      case 'sanity-preview-bar:inspector':
+        clickToEdit?.setActive(event.data.active)
+        break
       case 'sanity-preview-bar:labels':
         clickToEdit?.setLabels(event.data.labels)
         break
@@ -337,16 +319,26 @@ export function mountPreviewBarFrame(options: PreviewBarFrameOptions): PreviewBa
     }
   }
 
-  window.addEventListener('message', onMessage)
-  post({type: 'sanity-preview-bar:frame-path', path})
+  // ⌘⇧I / Ctrl+Shift+I on the page toggles the bar's inspector, as it does in the bar.
+  function onKeyDown(event: KeyboardEvent) {
+    if (!isInspectorShortcut(event)) return
+    event.preventDefault()
+    post({type: 'sanity-preview-bar:toggle-inspector'})
+  }
 
+  // Off until the tool says the inspector is on (it does after every page load).
   const clickToEdit =
     options.clickToEdit === false
       ? null
       : mountClickToEdit({
+          active: false,
           onEdit: (node) => post(editMessage(node)),
           onDescribe: (nodes) => post({type: 'sanity-preview-bar:describe', nodes}),
         })
+
+  window.addEventListener('message', onMessage)
+  if (clickToEdit) window.addEventListener('keydown', onKeyDown)
+  post({type: 'sanity-preview-bar:frame-path', path})
 
   return {
     setPath(next) {
@@ -356,6 +348,7 @@ export function mountPreviewBarFrame(options: PreviewBarFrameOptions): PreviewBa
     destroy() {
       destroyed = true
       window.removeEventListener('message', onMessage)
+      window.removeEventListener('keydown', onKeyDown)
       clickToEdit?.destroy()
     },
   }

@@ -201,18 +201,6 @@ export function useDocumentPaneState({
     setStack((current) => (current.length ? [...current, entry] : [entry]))
   }, [])
 
-  /** Click-to-edit: a document and path from the page. */
-  const stackRef = useRef(stack)
-  stackRef.current = stack
-  const pageId = pageEntry?.id ?? null
-  const edit = useCallback(
-    (request: EditRequest) => {
-      store('sessionStorage', OPEN_KEY, '1')
-      applyEdit(stackRef.current, request, pageId, setStack)
-    },
-    [pageId],
-  )
-
   const toggle = useCallback(() => {
     if (open) change([])
     else openPane()
@@ -237,7 +225,6 @@ export function useDocumentPaneState({
     canOpen: Boolean(pageEntry),
     openPane,
     openDocument,
-    edit,
     toggle,
     change,
     resize: beside ? {start: resizeStart, to: resizeTo, end: resizeEnd} : null,

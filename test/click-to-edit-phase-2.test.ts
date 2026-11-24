@@ -5,7 +5,7 @@ import {
   type LabelSchema,
   type LabelSchemaType,
 } from '../src/core/node-labels'
-import {isPreviewBarMessage} from '../src/core/protocol'
+import {isInspectorShortcut, isPreviewBarMessage} from '../src/core/protocol'
 import {matchFocusedNodes, parseSanityNode, toUrlPath} from '../src/core/sanity-node'
 
 const string = (title?: string): LabelSchemaType => ({name: 'string', jsonType: 'string', title})
@@ -227,5 +227,33 @@ describe('phase 2 messages', () => {
     expect(labels([{id: 'home', path: 'title', label: 7}])).toBe(false)
     expect(labels([{id: 'home', path: 'title', label: 'x', missing: 'yes'}])).toBe(false)
     expect(labels([{id: 'home', path: 'title', label: 'x'.repeat(201)}])).toBe(false)
+  })
+})
+
+describe('the inspector', () => {
+  test('messages', () => {
+    expect(isPreviewBarMessage({type: 'sanity-preview-bar:inspector', active: true})).toBe(true)
+    expect(isPreviewBarMessage({type: 'sanity-preview-bar:inspector', active: 'yes'})).toBe(false)
+    expect(isPreviewBarMessage({type: 'sanity-preview-bar:inspector'})).toBe(false)
+    expect(isPreviewBarMessage({type: 'sanity-preview-bar:toggle-inspector'})).toBe(true)
+  })
+
+  test('⌘⇧I or Ctrl+Shift+I, not repeated, not with Alt', () => {
+    const key = (fields: Partial<Parameters<typeof isInspectorShortcut>[0]>) =>
+      isInspectorShortcut({
+        key: 'I',
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: true,
+        altKey: false,
+        ...fields,
+      })
+    expect(key({metaKey: true})).toBe(true)
+    expect(key({ctrlKey: true})).toBe(true)
+    expect(key({metaKey: true, key: 'Dead', code: 'KeyI'})).toBe(true)
+    expect(key({})).toBe(false)
+    expect(key({metaKey: true, shiftKey: false})).toBe(false)
+    expect(key({metaKey: true, altKey: true})).toBe(false)
+    expect(key({metaKey: true, repeat: true})).toBe(false)
   })
 })

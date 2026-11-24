@@ -7,6 +7,11 @@
  * `/p/[code]` checks the link (rendering the expired page with a 404 when it's gone) and redirects
  * live ones to `<basePath>/open/<code>`, a route handler that turns draft mode on and redirects to
  * the stored page.
+ *
+ * Draft mode is one cookie (`__prerender_bypass`) whose value is fixed per build, so a link's
+ * recipient holds a value that turns draft mode on until the next deploy. `openLink` caps that
+ * cookie's lifetime to the link's, and marks the session so it can't mint links, but a recipient
+ * who copies the cookie by hand keeps draft mode until the next build. See the README.
  */
 import {cookies, draftMode, headers} from 'next/headers'
 import {notFound, redirect} from 'next/navigation'
@@ -14,6 +19,10 @@ import {notFound, redirect} from 'next/navigation'
 import type {PreviewBarData} from '../core/data'
 import {parsePerspective, PERSPECTIVE_COOKIE, serializePerspective} from '../core/perspective'
 import type {PreviewBar, PreviewClient, PreviewContext} from '../server'
+import {LINK_SESSION_COOKIE} from '../server/link-session'
+
+/** Next's draft mode cookie. */
+const DRAFT_MODE_COOKIE = '__prerender_bypass'
 
 export type NextPreviewBarOptions = {
   /** From `createPreviewBar` (`sanity-preview-bar/server`). */
@@ -39,11 +48,14 @@ export function createNextPreviewBar(options: NextPreviewBarOptions) {
 
   async function context(request: Request): Promise<PreviewContext> {
     const jar = await cookies()
+    // The marker holds the link's expiry (seconds); a stale one doesn't count.
+    const linkExpires = Number(jar.get(LINK_SESSION_COOKIE)?.value)
     return {
       request,
       previewEnabled: (await draftMode()).isEnabled,
       client,
       perspective: parsePerspective(jar.get(PERSPECTIVE_COOKIE)?.value),
+      linkSession: Number.isFinite(linkExpires) && linkExpires * 1000 > Date.now(),
     }
   }
 
@@ -73,7 +85,10 @@ export function createNextPreviewBar(options: NextPreviewBarOptions) {
           return bar.share(await context(request))
         case 'exit':
           // Draft mode's own cookie goes through Next, which merges it into the response.
-          return bar.exit({request}, async () => (await draftMode()).disable())
+          return bar.exit({request}, async () => {
+            ;(await draftMode()).disable()
+            ;(await cookies()).delete(LINK_SESSION_COOKIE)
+          })
       }
     }
     return new Response('Not found', {status: 404})
@@ -108,20 +123,31 @@ export function createNextPreviewBar(options: NextPreviewBarOptions) {
 
     /**
      * `app/preview-bar/open/[code]/route.ts`: `export const GET = previewBar.openLink`. Turns
-     * draft mode on, sets the stored perspective and redirects to the stored page; a link that
-     * has gone meanwhile goes back to `/p/<code>` for the expired page.
+     * draft mode on until the link expires, marks the session as opened from a link (so it can't
+     * mint links), sets the stored perspective and redirects to the stored page; a link that has
+     * gone meanwhile goes back to `/p/<code>` for the expired page.
      */
     async openLink(request: Request, {params}: RouteContext): Promise<Response> {
       const code = param((await params).code) ?? ''
       const result = await bar.resolveLink(code)
       if (result.status !== 200) redirect(`${bar.options.linkRoute}${code}`)
-      ;(await draftMode()).enable()
+      const {expiresAt} = result.link
+      const maxAge = Math.floor((expiresAt - Date.now()) / 1000)
+      if (maxAge <= 0) redirect(`${bar.options.linkRoute}${code}`)
       const secure = new URL(request.url).protocol === 'https:'
-      ;(await cookies()).set(
-        PERSPECTIVE_COOKIE,
-        serializePerspective(result.link.perspective),
-        cookieOptions(secure),
-      )
+      const options = cookieOptions(secure)
+      const jar = await cookies()
+      const draft = await draftMode()
+      // A recipient already in draft mode (an editor) keeps their own session, unmarked.
+      if (!draft.isEnabled) {
+        draft.enable()
+        // `enable()` sets a session cookie; set it again with the link's lifetime. Its value is
+        // fixed per build, so this bounds the browser's copy, not a copy taken by hand.
+        const bypass = jar.get(DRAFT_MODE_COOKIE)?.value
+        if (bypass) jar.set(DRAFT_MODE_COOKIE, bypass, {...options, maxAge})
+        jar.set(LINK_SESSION_COOKIE, String(Math.floor(expiresAt / 1000)), {...options, maxAge})
+      }
+      jar.set(PERSPECTIVE_COOKIE, serializePerspective(result.link.perspective), options)
       redirect(result.link.pathname)
     },
   }

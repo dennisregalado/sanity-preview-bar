@@ -43,6 +43,7 @@ import {
   normalizePreviewPathname,
   parsePreviewLinkValue,
   PREVIEW_LINK_ROUTE,
+  previewLinkExpiry,
   PREVIEW_LINK_TTL_SECONDS,
   type PreviewLinkStore,
   previewLinkKey,
@@ -110,10 +111,23 @@ export type PreviewContext = {
   client: PreviewClient
   /** The perspective the request applies (the parsed perspective cookie). */
   perspective: PreviewPerspective
+  /**
+   * Preview mode came from opening a short link rather than from an editor (the adapter's
+   * link-session cookie). Such sessions can't mint links of their own.
+   */
+  linkSession?: boolean
 }
 
-/** Adds or removes the framework's preview cookie on a response (e.g. `__sanity_preview`). */
-export type PreviewModeSwitch = (headers: Headers, request: Request) => void | Promise<void>
+/**
+ * Adds or removes the framework's preview cookie on a response (e.g. `__sanity_preview`). When
+ * opening a short link, `link.expiresAt` (ms since the epoch) is when the link stops opening: the
+ * preview cookie should not outlive it.
+ */
+export type PreviewModeSwitch = (
+  headers: Headers,
+  request: Request,
+  link?: {expiresAt: number},
+) => void | Promise<void>
 
 const PRIVATE_HEADERS = {'cache-control': 'private, no-store', 'x-robots-tag': 'noindex'}
 
@@ -378,11 +392,13 @@ export function createPreviewBar(options: PreviewBarOptions) {
 
   /**
    * POST `{ pathname }`: mints a short link while Presentation's "Share this preview" is on (409
-   * when it is off). The store holds the page and perspective, never a secret.
+   * when it is off). The store holds the page and perspective, never a secret. 403 for a session
+   * opened from a short link: recipients can't hand out links of their own.
    */
   async function share(ctx: PreviewContext): Promise<Response> {
     if (!ctx.previewEnabled || !links) return status(404, 'Not found')
     if (!sameOrigin(ctx.request)) return status(403, 'Forbidden')
+    if (ctx.linkSession) return status(403, 'Preview links can’t be shared from a preview link')
     const body = (await ctx.request.json().catch(() => ({}))) as {pathname?: unknown}
     const pathname = normalizePreviewPathname(body?.pathname)
     if (!pathname) return status(400, 'Invalid pathname')
@@ -425,19 +441,23 @@ export function createPreviewBar(options: PreviewBarOptions) {
       'set-cookie',
       setCookieHeader(request, PERSPECTIVE_COOKIE, serializePerspective(link.perspective)),
     )
-    await enablePreview(headers, request)
+    await enablePreview(headers, request, {expiresAt: link.expiresAt})
     return new Response(null, {status: 307, headers})
   }
 
   /**
-   * Looks a short link up: `200` with the stored page and perspective, `404` for an unknown,
-   * malformed or expired code, `503` when the store can't be read. For adapters that set cookies
-   * through their framework's own API; `openLink` builds the whole response.
+   * Looks a short link up: `200` with the stored page, perspective and expiry (ms since the
+   * epoch), `404` for an unknown, malformed or expired code, `503` when the store can't be read.
+   * Expiry is checked here too (`createdAt` + `ttlSeconds`), so a store that ignores the TTL
+   * doesn't make links permanent. For adapters that set cookies through their framework's own
+   * API; `openLink` builds the whole response.
    */
-  async function resolveLink(
-    code: string,
-  ): Promise<
-    {status: 200; link: {pathname: string; perspective: PreviewPerspective}} | {status: 404 | 503}
+  async function resolveLink(code: string): Promise<
+    | {
+        status: 200
+        link: {pathname: string; perspective: PreviewPerspective; expiresAt: number}
+      }
+    | {status: 404 | 503}
   > {
     if (!links || !isPreviewLinkCode(code)) return {status: 404}
     let stored: unknown
@@ -449,9 +469,15 @@ export function createPreviewBar(options: PreviewBarOptions) {
     }
     const link = parsePreviewLinkValue(stored)
     if (!link) return {status: 404}
+    // A `createdAt` in the future (beyond a minute of clock skew) isn't one we wrote.
+    const now = Date.now()
+    const expiresAt = previewLinkExpiry(link, ttlSeconds)
+    if (expiresAt === null || expiresAt <= now || expiresAt > now + ttlSeconds * 1000 + 60_000) {
+      return {status: 404}
+    }
     return {
       status: 200,
-      link: {pathname: link.pathname, perspective: parsePerspective(link.perspective)},
+      link: {pathname: link.pathname, perspective: parsePerspective(link.perspective), expiresAt},
     }
   }
 
@@ -472,6 +498,7 @@ export function createPreviewBar(options: PreviewBarOptions) {
 export type PreviewBar = ReturnType<typeof createPreviewBar>
 
 export {kvStore, memoryStore} from '../core/preview-links'
+export {LINK_SESSION_COOKIE, signLinkSession, verifyLinkSession} from './link-session'
 export type {KVNamespaceLike, PreviewLinkStore} from '../core/preview-links'
 export type {SearchConfig, SearchDocumentType, SearchRoute} from '../core/link-search'
 export type {PreviewBarBrand, PreviewBarData} from '../core/data'

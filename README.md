@@ -7,7 +7,9 @@ Shopify theme preview, made of the Studio's own parts.
   with their stacks and tones), switching instantly with no reload.
 - **Share preview:** Presentation's share menu: the "Share this preview" switch, a QR code to open
   the preview on a phone, and "Copy preview link". The link is a short `/p/<code>` link that opens
-  the page in the current perspective for 2 days, with no secret in the URL.
+  the page in the current perspective for 2 days, with no secret in the URL or in the recipient's
+  cookies (SvelteKit; see [Short links](#7-short-links) for Next.js). Recipients can't share
+  links of their own.
 - **Link search (⌘K):** the Studio's search over the pages you configure, with its virtualized list,
   previews and status dots. Picking a result navigates the site.
 - **Workspace menu:** the Studio's own: the title and chevron open the project name, the workspace
@@ -106,13 +108,16 @@ Studio's, or `boost: {subtitle: null}` to rank on the title only.
 
 ```ts
 // src/hooks.server.ts
-import {handlePreviewPerspective} from 'sanity-preview-bar/sveltekit'
+import {previewBar} from '$lib/server/preview-bar'
 
-export const handle = sequence(handleSanity /* handlePreviewMode */, handlePreviewPerspective)
+export const handle = sequence(handleSanity /* handlePreviewMode */, previewBar.handle)
 ```
 
-`handlePreviewPerspective` applies the bar's perspective to `event.locals.sanity.client`, without
-stega, so preview pages render clean, fast strings.
+`previewBar.handle` applies the bar's perspective to `event.locals.sanity.client`, without stega,
+so preview pages render clean, fast strings. It also turns preview on for visitors who opened a
+short link (see [Short links](#7-short-links)), so put it right after `handlePreviewMode` and
+before anything that reads `event.locals.sanity.previewEnabled` (such as `handleLiveLoader`).
+Without short links, the static `handlePreviewPerspective` export does the perspective part alone.
 
 ### 3. Routes
 
@@ -384,8 +389,23 @@ page, or a layout that doesn't mount the frame), the tool replaces its loading s
 - Add `Disallow: /p/` to `robots.txt`.
 - Links are minted only while **Share this preview** is on. The switch in the bar's share menu is
   Sanity's preview sharing setting, the one Presentation's share menu toggles (signed-in editors can
-  toggle it; others see it read-only), and turning it off stops new links. Links already handed out keep working until they
-  expire.
+  toggle it; others see it read-only), and turning it off stops new links. Links already handed
+  out, and sessions opened from them, keep working until the link expires.
+- Expiry is checked on the server too (the stored `createdAt` plus `ttlSeconds`), so a store that
+  ignores the TTL doesn't make links permanent; it just keeps dead entries around.
+- Opening a link never gives the recipient the preview secret. On SvelteKit it sets a signed
+  `__sanity_preview_link` cookie (HMAC with your preview secret) that expires with the link, and
+  `previewBar.handle` turns preview on for it; the `__sanity_preview` cookie isn't set. Copying
+  that cookie gains nothing the link didn't give. "Exit preview" clears it.
+- Sessions opened from a link can't mint links (the share endpoint answers 403); editors and
+  anyone in preview mode through Presentation or the Visual Editor still can.
+- **Next.js:** draft mode is a single cookie, `__prerender_bypass`, whose value Next fixes per
+  build, and the adapter can't put a different value in a link recipient's browser. `openLink`
+  sets that cookie to expire with the link and marks the session (`__sanity_preview_link`) so the
+  share endpoint refuses it. A recipient who copies `__prerender_bypass` out of their browser can
+  still use draft mode, on any page, until your next deployment, and can drop the marker to share.
+  Only send links to people you'd trust with draft mode until then. Redeploying invalidates every
+  copied cookie.
 
 ## Next.js (App Router)
 
@@ -452,8 +472,9 @@ export default function NotFound() {
 ```
 
 Opening a link takes two hops because a page can't set cookies while rendering: `/p/<code>` checks
-the link and redirects to `/preview-bar/open/<code>`, which enables draft mode and redirects to the
-stored page.
+the link and redirects to `/preview-bar/open/<code>`, which enables draft mode until the link
+expires and redirects to the stored page. Draft mode's cookie is fixed per build, so a recipient
+who copies it keeps draft mode until your next deployment; see [Short links](#7-short-links).
 
 ### 3. Mount the host in your layout
 

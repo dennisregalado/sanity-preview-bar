@@ -40,6 +40,7 @@ import {
 } from '../bar/pane-state'
 import {clientDocumentFetcher, createNodeDescriber, type LabelSchema} from '../core/node-labels'
 import {findPageDocumentRule, type PageDocumentRule} from '../core/page-documents'
+import {sameOriginPath} from '../core/paths'
 import {
   isPreviewBarMessage,
   PREVIEW_BAR_FRAME_NAME,
@@ -341,9 +342,9 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     const preview = new URLSearchParams(
       (router.state._searchParams as [string, string][] | undefined) ?? [],
     ).get('preview')
-    return preview && preview.startsWith('/') && !preview.startsWith('//')
-      ? preview
-      : (options.previewUrl?.initial ?? '/')
+    // Same-origin paths only: the page is framed under the tool's bar and goes to the site's
+    // enable route as its redirect.
+    return sameOriginPath(preview) ?? options.previewUrl?.initial ?? '/'
     // Only the first page: the frame navigates itself after that.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

@@ -79,49 +79,63 @@ export function usePerspectiveSwitch({
   perspective,
   onChange,
   onRefresh,
-}: {
-  basePath: string
+}: PerspectiveSwitchState & {basePath: string}) {
+  const current = useRef<PerspectiveSwitchState>({perspective, releases, onChange, onRefresh})
+  current.current = {perspective, releases, onChange, onRefresh}
+  return useMemo(() => createPerspectiveSwitch(basePath, () => current.current), [basePath])
+}
+
+export type PerspectiveSwitchState = {
   releases: ReleaseDocument[]
   perspective: PreviewPerspective
   /** Shows a stack in the bar: the optimistic one, then the server's, or the old one on failure. */
   onChange: (perspective: PreviewPerspective) => void
   /** Reruns the storefront's queries once the server has stored the latest switch. */
   onRefresh: () => Promise<void>
-}) {
-  const saves = useRef<Promise<void>>(Promise.resolve())
-  const latest = useRef(0)
-  const current = useRef({perspective, releases, onChange, onRefresh})
-  current.current = {perspective, releases, onChange, onRefresh}
+}
 
-  return useCallback(
-    (next: PerspectiveSelection) => {
-      const {perspective: previous, releases: list, onChange: show} = current.current
-      const request = ++latest.current
-      show(perspectiveStack({selected: next.selected, releases: list, excluded: next.excluded}))
+/**
+ * `usePerspectiveSwitch` without React. Returns the switch, which resolves once its save (not the
+ * page's refresh) has settled. Saves are chained; the refresh runs outside the chain, so a page
+ * that never answers `refreshed` can't hold later switches back.
+ */
+export function createPerspectiveSwitch(
+  basePath: string,
+  state: () => PerspectiveSwitchState,
+): (next: PerspectiveSelection) => Promise<void> {
+  let saves: Promise<void> = Promise.resolve()
+  let latest = 0
+  return (next) => {
+    const {perspective: previous, releases: list, onChange: show} = state()
+    const request = ++latest
+    show(perspectiveStack({selected: next.selected, releases: list, excluded: next.excluded}))
 
-      saves.current = saves.current.then(async () => {
-        try {
-          const response = await fetch(`${basePath}/perspective`, {
-            method: 'POST',
-            headers: {'content-type': 'application/json'},
-            body: JSON.stringify(next),
-          })
-          if (!response.ok) throw new Error(`HTTP ${response.status}`)
-          const {perspective: stored} = (await response.json()) as {
-            perspective: PreviewPerspective
-          }
-          if (request !== latest.current) return
-          // The server builds the stack from fresh release data; it wins if a release changed.
-          current.current.onChange(stored)
-          await current.current.onRefresh()
-        } catch (err) {
-          console.error('Preview bar: could not change perspective', err)
-          if (request === latest.current) current.current.onChange(previous)
+    saves = saves.then(async () => {
+      try {
+        const response = await fetch(`${basePath}/perspective`, {
+          method: 'POST',
+          headers: {'content-type': 'application/json'},
+          body: JSON.stringify(next),
+        })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const {perspective: stored} = (await response.json()) as {
+          perspective: PreviewPerspective
         }
-      })
-    },
-    [basePath],
-  )
+        if (request !== latest) return
+        // The server builds the stack from fresh release data; it wins if a release changed.
+        state().onChange(stored)
+      } catch (err) {
+        console.error('Preview bar: could not change perspective', err)
+        if (request === latest) state().onChange(previous)
+        return
+      }
+      // Not awaited: the cookie is stored, and the next switch shouldn't wait on the page.
+      state()
+        .onRefresh()
+        .catch((err) => console.error('Preview bar: could not refresh the page', err))
+    })
+    return saves
+  }
 }
 
 /** "Monday at 2:00 AM" within a week, "Dec 1 at 2:00 AM" (plus year if not this year) after. */

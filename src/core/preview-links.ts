@@ -137,6 +137,22 @@ export type KVNamespaceLike = {
   put(key: string, value: string, options: {expirationTtl: number}): Promise<void>
 }
 
+/** The shortest link lifetime: Workers KV's minimum `expirationTtl`. */
+export const MIN_LINK_TTL_SECONDS = 60
+
+/**
+ * Returns `ttlSeconds` if it's a whole number of seconds, at least `MIN_LINK_TTL_SECONDS`;
+ * otherwise throws, so a bad `links.ttlSeconds` fails at startup rather than on every share.
+ */
+export function assertLinkTtl(ttlSeconds: number): number {
+  if (!Number.isInteger(ttlSeconds) || ttlSeconds < MIN_LINK_TTL_SECONDS) {
+    throw new Error(
+      `sanity-preview-bar: links.ttlSeconds must be a whole number of seconds, at least ${MIN_LINK_TTL_SECONDS} (got ${String(ttlSeconds)})`,
+    )
+  }
+  return ttlSeconds
+}
+
 /** A Cloudflare Workers KV store. KV's minimum TTL is 60 seconds. */
 export function kvStore(namespace: KVNamespaceLike | undefined | null): PreviewLinkStore {
   return {
@@ -146,7 +162,7 @@ export function kvStore(namespace: KVNamespaceLike | undefined | null): PreviewL
     },
     async put(key, value, ttlSeconds) {
       if (!namespace) throw new Error('sanity-preview-bar: the KV namespace binding is missing')
-      await namespace.put(key, JSON.stringify(value), {expirationTtl: ttlSeconds})
+      await namespace.put(key, JSON.stringify(value), {expirationTtl: assertLinkTtl(ttlSeconds)})
     },
   }
 }

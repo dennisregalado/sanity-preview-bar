@@ -18,6 +18,7 @@ import {
   urlSearchParamPreviewPathname,
   urlSearchParamPreviewSecret,
 } from '@sanity/preview-url-secret/constants'
+import {Button, Card, Flex, Stack, Text} from '@sanity/ui'
 import {type CSSProperties, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import * as sanityModule from 'sanity'
 import {type Tool, useClient, useCurrentUser, usePerspective, useSchema, useWorkspace} from 'sanity'
@@ -148,6 +149,88 @@ function PageSkeleton() {
     >
       <style>{SKELETON_CSS}</style>
     </div>
+  )
+}
+
+/**
+ * How long the tool waits, after the frame's `load`, for the page's `mountPreviewBarFrame` to
+ * report its path before it stops showing the skeleton and says the page didn't connect.
+ */
+export const FRAME_CONNECT_TIMEOUT_MS = 8000
+
+/**
+ * The page area when the site can't be shown: preview mode couldn't be enabled (`message`), or
+ * the page loaded but never connected (Presentation's "Unable to connect").
+ */
+function PageError({
+  message,
+  enablePath,
+  pageUrl,
+  onRetry,
+}: {
+  message: string | null
+  enablePath: string
+  pageUrl: string | null
+  onRetry: () => void
+}) {
+  return (
+    <Flex
+      align="center"
+      justify="center"
+      padding={4}
+      style={{position: 'absolute', inset: 0, overflow: 'auto'}}
+    >
+      <Card role="alert" padding={4} radius={3} shadow={1} style={{maxWidth: 440, width: '100%'}}>
+        <Stack gap={4}>
+          <Text size={2} weight="semibold">
+            {message ? 'Couldn’t open the preview' : 'Unable to connect to the page'}
+          </Text>
+          {message ? (
+            <Text size={1} muted>
+              {message}
+            </Text>
+          ) : (
+            <Stack gap={3}>
+              <Text size={1} muted>
+                The page loaded but didn’t connect to the Visual Editor. Check that:
+              </Text>
+              <ul style={{margin: 0, paddingLeft: 20, display: 'grid', gap: 12}}>
+                <li>
+                  <Text size={1} muted>
+                    <code>previewMode.enable</code> (<code>{enablePath}</code>) is your site’s
+                    preview-mode route, and its secret check passes
+                  </Text>
+                </li>
+                <li>
+                  <Text size={1} muted>
+                    the page loads without an error
+                  </Text>
+                </li>
+                <li>
+                  <Text size={1} muted>
+                    your layout calls <code>mountPreviewBarFrame</code> when{' '}
+                    <code>isPreviewBarFrame()</code> is true
+                  </Text>
+                </li>
+              </ul>
+            </Stack>
+          )}
+          <Flex gap={2}>
+            <Button mode="default" tone="primary" text="Retry" onClick={onRetry} />
+            {pageUrl && (
+              <Button
+                as="a"
+                mode="ghost"
+                text="Open in new tab"
+                href={pageUrl}
+                target="_blank"
+                rel="noopener"
+              />
+            )}
+          </Flex>
+        </Stack>
+      </Card>
+    </Flex>
   )
 }
 
@@ -304,6 +387,8 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
   const currentUser = useCurrentUser()
   const [frameSrc, setFrameSrc] = useState<string | null>(null)
   const [frameError, setFrameError] = useState<string | null>(null)
+  // Bumped by Retry: starts over (enabling preview mode again) with a new frame.
+  const [attempt, setAttempt] = useState(0)
   const perspectiveStored = useRef(false)
   useEffect(() => {
     let cancelled = false
@@ -335,9 +420,9 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
     return () => {
       cancelled = true
     }
-    // Once per tool mount.
+    // Once per tool mount, and again on Retry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [attempt])
 
   const siteFrame = useRef<HTMLIFrameElement | null>(null)
   const [viewport, setViewport] = useState<PreviewBarViewport>('desktop')
@@ -584,6 +669,7 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
       switch (message.type) {
         case 'sanity-preview-bar:frame-path': {
           setPath(message.path)
+          setConnectFailed(false)
           // A new page in the frame starts with click-to-edit off.
           postToSite({type: 'sanity-preview-bar:inspector', active: inspectorRef.current})
           postToBar({type: 'sanity-preview-bar:path', path: message.path})
@@ -632,7 +718,26 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
   // Everything shows as soon as it's ready: the bar at once (Studio data), the page and the pane
   // each behind a skeleton until theirs arrives. The pane's column is held from the start, so the
   // page doesn't shift when the document opens.
-  const pageLoading = path === null && !frameError
+  // The frame's `load` without a `frame-path` (a wrong enable route, a failed secret check, an
+  // error page, a layout without `mountPreviewBarFrame`) would leave the skeleton up for good: after
+  // a while, it gives way to an error card.
+  const [frameLoads, setFrameLoads] = useState(0)
+  const [connectFailed, setConnectFailed] = useState(false)
+  useEffect(() => {
+    if (frameLoads === 0 || path !== null) return
+    const timer = setTimeout(() => setConnectFailed(true), FRAME_CONNECT_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [frameLoads, path])
+  const retry = useCallback(() => {
+    setConnectFailed(false)
+    setFrameError(null)
+    setFrameLoads(0)
+    setPath(null)
+    setFrameSrc(null)
+    perspectiveStored.current = false
+    setAttempt((value) => value + 1)
+  }, [])
+  const pageLoading = path === null && !frameError && !connectFailed
 
   // Like the bar on the site: the document pane runs top to bottom on the right, and the bar sits
   // beside it, above the page.
@@ -673,8 +778,10 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
         >
           {frameSrc ? (
             <iframe
+              key={attempt}
               ref={siteFrame}
               name={PREVIEW_BAR_FRAME_NAME}
+              onLoad={() => setFrameLoads((value) => value + 1)}
               title="Preview"
               src={frameSrc}
               allow="clipboard-write"
@@ -697,19 +804,16 @@ export function VisualEditorTool({tool}: {tool: Tool<VisualEditorToolOptions>}) 
                   .join(', '),
               }}
             />
-          ) : (
-            <div
-              style={{
-                alignSelf: 'center',
-                color: 'var(--card-muted-fg-color)',
-                font: 'inherit',
-                fontSize: 13,
-              }}
-            >
-              {frameError}
-            </div>
-          )}
+          ) : null}
           {pageLoading && <PageSkeleton />}
+          {(frameError || connectFailed) && (
+            <PageError
+              message={frameError}
+              enablePath={enablePath}
+              pageUrl={frameError ? null : new URL(path ?? initialPath, origin).toString()}
+              onRetry={retry}
+            />
+          )}
         </div>
       </div>
       {(paneOpen || paneLoading) && (

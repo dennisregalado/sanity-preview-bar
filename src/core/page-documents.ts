@@ -39,6 +39,16 @@ export type PageDocumentRule =
  * and a trailing `:name*` (the rest of the path). Returns the params, or `null`.
  */
 export function matchRoute(route: string, pathname: string): Record<string, string> | null {
+  try {
+    return matchRouteParts(route, pathname)
+  } catch (error) {
+    // A malformed escape (`/products/%E0`) matches nothing.
+    if (error instanceof URIError) return null
+    throw error
+  }
+}
+
+function matchRouteParts(route: string, pathname: string): Record<string, string> | null {
   const routeParts = route.split('/').filter(Boolean)
   const pathParts = pathname.split('?')[0].split('#')[0].split('/').filter(Boolean)
   const params: Record<string, string> = {}

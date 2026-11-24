@@ -343,12 +343,26 @@ import {isPreviewBarFrame} from 'sanity-preview-bar'
 $effect(() => {
   const frame = isPreviewBarFrame()
   if (!data.preview || (window.self !== window.top && !frame)) return
+  let cancelled = false
   import('sanity-preview-bar/host').then(({mountPreviewBarHost, mountPreviewBarFrame}) => {
+    if (cancelled) return
     const options = {refresh: refreshAll, navigate: goto}
     host = frame ? mountPreviewBarFrame(options) : mountPreviewBarHost(options)
   })
+  return () => {
+    cancelled = true
+    host?.destroy()
+    host = undefined
+  }
 })
 ```
+
+Keep the `$effect(() => host?.setPath(...))` line from section 4: it reports the path in both.
+On Next.js, `<PreviewBarHost />` (below) does this for you.
+
+If the page never connects (a wrong `previewMode.enable` route, a failed secret check, an error
+page, or a layout that doesn't mount the frame), the tool replaces its loading skeleton with an
+"Unable to connect" card after a few seconds, with **Retry** and **Open in new tab**.
 
 - In the tool, the bar's **Edit** and **Create new document** open documents in the tool's pane,
   search results without a page open there too, and the pane's × goes back, then closes.
@@ -452,7 +466,9 @@ import {PreviewBarHost} from 'sanity-preview-bar/next/client'
 }
 ```
 
-The host refreshes with `router.refresh()` and navigates with `router.push()`.
+The host refreshes with `router.refresh()` and navigates with `router.push()`. In the Visual Editor
+tool's frame (`isPreviewBarFrame()`), the same component mounts `mountPreviewBarFrame` instead, so
+the tool works with no extra code; it skips any other frame.
 
 ### Visual Editing
 

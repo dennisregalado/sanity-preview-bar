@@ -16,9 +16,6 @@ import {StudioTooltip} from './StudioTooltip'
 /** `useEnvAwareSanityWebsiteUrl` for production projects. */
 const SANITY_WEBSITE_URL = 'https://www.sanity.io'
 
-/** The Studio's `Button` wrapper defaults (`DEFAULT_BUTTON_PROPS`) plus `ManageMenu`'s style. */
-const MANAGE_BUTTON_STYLE = {'--card-border-color': 'unset'} as CSSProperties
-
 export function WorkspaceMenu({
   onOpenChange,
   onHoverChange,
@@ -122,6 +119,8 @@ export function WorkspaceMenu({
                     </Flex>
                   </Flex>
                   {manageUrl && (
+                    // Borderless, as the Studio draws them. Its `--card-border-color: unset` is
+                    // for its own button; on this Sanity UI it would draw a border instead.
                     <Flex justify="flex-start" gap={3} paddingTop={4}>
                       <Button
                         as="a"
@@ -133,7 +132,6 @@ export function WorkspaceMenu({
                         padding={2}
                         icon={CogIcon}
                         text="Manage project"
-                        style={MANAGE_BUTTON_STYLE}
                       />
                       <Button
                         as="a"
@@ -145,7 +143,6 @@ export function WorkspaceMenu({
                         padding={2}
                         icon={AddUserIcon}
                         text="Invite members"
-                        style={MANAGE_BUTTON_STYLE}
                       />
                     </Flex>
                   )}

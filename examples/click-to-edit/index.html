@@ -200,7 +200,7 @@
       <ul>
         <li>Click an outlined element: the edit message is logged, links aren’t followed.</li>
         <li>Hold <kbd>Alt</kbd>/<kbd>⌥</kbd>: no outline, clicks reach the page.</li>
-        <li><kbd>⌘\</kbd> / <kbd>Ctrl+\</kbd> turns it off and on. <kbd>Esc</kbd> clears it.</li>
+        <li><kbd>Esc</kbd> clears the hover outline.</li>
         <li>
           Labels and the red drift outline come from a stand-in schema (the Studio's, for real).
         </li>
@@ -214,7 +214,9 @@
           <option value="page-home|sections:makers.body.children:s1">Makers › Body (deeper)</option>
         </select></label
       >
-      <label><input id="active" type="checkbox" checked /> Document pane open (site)</label>
+      <label
+        ><input id="active" type="checkbox" checked /> Inspector on (the Visual Editor's ⌘⇧I)</label
+      >
       <label><input id="rerender" type="checkbox" /> Re-render the hero heading every 300 ms</label>
       <pre id="log"></pre>
     </aside>

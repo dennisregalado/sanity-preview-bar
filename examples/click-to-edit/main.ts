@@ -105,7 +105,7 @@ const clickToEdit = mountClickToEdit({
   },
 })
 
-// The site turns click-to-edit on only while the document pane is open.
+// The Visual Editor turns click-to-edit on with the bar's inspector.
 const active = document.getElementById('active') as HTMLInputElement
 active.addEventListener('change', () => clickToEdit.setActive(active.checked))
 

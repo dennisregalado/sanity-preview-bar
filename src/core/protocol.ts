@@ -128,8 +128,8 @@ export type PreviewBarMessage =
    */
   | {type: 'sanity-preview-bar:panel'; open: boolean; width: number; side: PaneSide}
   /**
-   * Host or framed site → bar or Visual Editor tool: an element marked with `data-sanity` was
-   * clicked (click-to-edit, `sanity-preview-bar/host`'s overlay). Open `id` in the document pane
+   * Site framed by the Visual Editor tool → tool: an element marked with `data-sanity` was clicked
+   * while the inspector is on (click-to-edit, `sanity-preview-bar/host`'s overlay). Open `id` in the document pane
    * at `path`, which is in Sanity's URL form as written in the attribute (`sections:k1.heading`);
    * `toPanePath` turns it into the pane's `path` param. The page's own document opens at the path
    * (an array item opens its editor, a field gets focus); any other document goes on the pane's
@@ -137,18 +137,44 @@ export type PreviewBarMessage =
    */
   | {type: 'sanity-preview-bar:edit'; id: string; documentType: string; path: string}
   /**
-   * Bar or Visual Editor tool → host or framed site: the document pane focused a field (`path` in
+   * Visual Editor tool → framed site: the document pane focused a field (`path` in
    * URL form) of document `id`; the overlay outlines the elements that show it and scrolls one into
    * view. Empty `id` and `path` clear it.
    */
   | {type: 'sanity-preview-bar:focus'; id: string; path: string}
   /**
-   * Host or framed site → bar or Visual Editor tool: label these `data-sanity` nodes (field titles
+   * Bar → Visual Editor tool → framed site: the inspector (the bar's "Activate inspector" button or
+   * ⌘⇧I) turned click-to-edit on or off. The tool resends it after every page load in the frame.
+   */
+  | {type: 'sanity-preview-bar:inspector'; active: boolean}
+  /** Framed site → Visual Editor tool → bar: ⌘⇧I was pressed on the page; toggle the inspector. */
+  | {type: 'sanity-preview-bar:toggle-inspector'}
+  /**
+   * Framed site → Visual Editor tool: label these `data-sanity` nodes (field titles
    * from the Studio's schema) and check that their paths resolve. Answered with `labels`.
    */
   | {type: 'sanity-preview-bar:describe'; nodes: SanityNode[]}
-  /** Bar or Visual Editor tool → host or framed site: the answer to `describe`. */
+  /** Visual Editor tool → framed site: the answer to `describe`. */
   | {type: 'sanity-preview-bar:labels'; labels: NodeLabel[]}
+
+/** ⌘⇧I / Ctrl+Shift+I: the inspector's shortcut, in the bar and on the framed page. */
+export function isInspectorShortcut(event: {
+  key: string
+  code?: string
+  metaKey: boolean
+  ctrlKey: boolean
+  shiftKey: boolean
+  altKey: boolean
+  repeat?: boolean
+}) {
+  return (
+    (event.key.toLowerCase() === 'i' || event.code === 'KeyI') &&
+    (event.metaKey || event.ctrlKey) &&
+    event.shiftKey &&
+    !event.altKey &&
+    !event.repeat
+  )
+}
 
 export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
   if (typeof data !== 'object' || data === null || !('type' in data)) return false
@@ -161,7 +187,10 @@ export function isPreviewBarMessage(data: unknown): data is PreviewBarMessage {
     case 'sanity-preview-bar:pane':
     case 'sanity-preview-bar:studio-home':
     case 'sanity-preview-bar:open-editor':
+    case 'sanity-preview-bar:toggle-inspector':
       return true
+    case 'sanity-preview-bar:inspector':
+      return 'active' in data && typeof data.active === 'boolean'
     case 'sanity-preview-bar:navigate':
       return 'href' in data && isRootRelative(data.href)
     case 'sanity-preview-bar:menu':

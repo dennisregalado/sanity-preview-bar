@@ -1,9 +1,10 @@
 /**
- * "Activate inspector" (Shopify's theme editor toolbar): UI only for now. A toggle with the
- * Studio's tooltip and the ⌘⇧I hint; nothing inspects yet.
+ * "Activate inspector" (Shopify's theme editor toolbar), in the Visual Editor only: turns
+ * click-to-edit on the framed page on and off. A toggle with the Studio's tooltip and the ⌘⇧I
+ * hint; the bar owns its state.
  */
 import {Button} from '@sanity/ui'
-import {forwardRef, type SVGProps, useState} from 'react'
+import {forwardRef, type SVGProps} from 'react'
 import {StudioTooltip} from './StudioTooltip'
 
 /**
@@ -40,8 +41,15 @@ export const InspectIcon = forwardRef<SVGSVGElement, SVGProps<SVGSVGElement>>(
   },
 )
 
-export function InspectorButton({onHoverChange}: {onHoverChange: (hovered: boolean) => void}) {
-  const [active, setActive] = useState(false)
+export function InspectorButton({
+  active,
+  onToggle,
+  onHoverChange,
+}: {
+  active: boolean
+  onToggle: () => void
+  onHoverChange: (hovered: boolean) => void
+}) {
   const label = active ? 'Deactivate inspector' : 'Activate inspector'
   return (
     <span
@@ -59,7 +67,7 @@ export function InspectorButton({onHoverChange}: {onHoverChange: (hovered: boole
           selected={active}
           aria-label={label}
           aria-pressed={active}
-          onClick={() => setActive((value) => !value)}
+          onClick={onToggle}
         />
       </StudioTooltip>
     </span>

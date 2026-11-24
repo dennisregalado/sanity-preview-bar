@@ -1,6 +1,6 @@
 {
   "name": "sanity-preview-bar",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "A Shopify-style Sanity preview bar for SvelteKit and Next.js: the Studio's perspective switcher, short expiring preview links and link search, built with @sanity/ui.",
   "keywords": [
     "sanity",

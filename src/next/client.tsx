@@ -9,11 +9,13 @@ import {usePathname, useRouter} from 'next/navigation'
 import {useEffect, useRef, useState} from 'react'
 
 import type {PreviewBarData, PreviewLinkErrorData} from '../core/data'
+import {isPreviewBarFrame} from '../core/protocol'
 import {isTopWindow, type PreviewBarHost as Host} from '../host'
 
 /**
- * Mounts the bar's frame in the top window while draft mode is on. Skipped in frames: the Studio's
- * Visual Editor frames the site with its own bar.
+ * Mounts the bar's frame in the top window while draft mode is on. In the Studio's Visual Editor
+ * tool's frame (`isPreviewBarFrame()`), it answers the tool instead (`mountPreviewBarFrame`): the
+ * tool shows its own bar above the page. Other frames are skipped.
  */
 export function PreviewBarHost({basePath}: {basePath?: string}) {
   const router = useRouter()
@@ -21,17 +23,18 @@ export function PreviewBarHost({basePath}: {basePath?: string}) {
   const [host, setHost] = useState<Host | null>(null)
 
   useEffect(() => {
-    if (!isTopWindow()) return
+    const frame = isPreviewBarFrame()
+    if (!frame && !isTopWindow()) return
     let cancelled = false
     let mounted: Host | undefined
-    import('../host').then(({mountPreviewBarHost}) => {
+    import('../host').then(({mountPreviewBarHost, mountPreviewBarFrame}) => {
       if (cancelled) return
-      mounted = mountPreviewBarHost({
-        basePath,
+      const options = {
         // Server components rerun with the new perspective cookie; client state stays.
         refresh: () => router.refresh(),
-        navigate: (href) => router.push(href),
-      })
+        navigate: (href: string) => router.push(href),
+      }
+      mounted = frame ? mountPreviewBarFrame(options) : mountPreviewBarHost({...options, basePath})
       setHost(mounted)
     })
     return () => {

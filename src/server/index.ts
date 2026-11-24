@@ -36,6 +36,7 @@ import {
   parsePerspective,
 } from '../core/perspective'
 import {
+  assertLinkTtl,
   createPreviewLink,
   generatePreviewLinkCode,
   isPreviewLinkCode,
@@ -71,7 +72,7 @@ export type PreviewBarOptions = {
         store: PreviewLinkStore | (() => PreviewLinkStore)
         /** Route prefix the links open at. Default `/p/`. */
         route?: string
-        /** Default 2 days. */
+        /** Link lifetime in seconds: a whole number, at least 60 (Workers KV's minimum). Default 2 days. */
         ttlSeconds?: number
       }
     | false
@@ -170,7 +171,7 @@ export function createPreviewBar(options: PreviewBarOptions) {
   const search = options.search || null
   const links = options.links || null
   const linkRoute = links ? (links.route ?? PREVIEW_LINK_ROUTE) : PREVIEW_LINK_ROUTE
-  const ttlSeconds = links ? (links.ttlSeconds ?? PREVIEW_LINK_TTL_SECONDS) : 0
+  const ttlSeconds = links ? assertLinkTtl(links.ttlSeconds ?? PREVIEW_LINK_TTL_SECONDS) : 0
 
   function store() {
     if (!links) throw new Error('sanity-preview-bar: short links are not configured')
@@ -223,9 +224,19 @@ export function createPreviewBar(options: PreviewBarOptions) {
       selected?: unknown
       excluded?: unknown
     }
-    const releases = activeReleases(await fetchReleases(ctx.client))
-    const releaseIds = releases.map(releaseIdOf)
     const selected = typeof body.selected === 'string' ? body.selected : DRAFTS
+    // Published and Drafts are stacks of their own; only a release needs the release list (so a
+    // token that can't read releases can still switch between the two).
+    let releases: ReleaseDocument[] = []
+    if (selected !== PUBLISHED && selected !== DRAFTS) {
+      try {
+        releases = activeReleases(await fetchReleases(ctx.client))
+      } catch (error) {
+        console.error('sanity-preview-bar: could not load content releases', error)
+        return status(503, 'Could not load content releases')
+      }
+    }
+    const releaseIds = releases.map(releaseIdOf)
     if (selected !== PUBLISHED && selected !== DRAFTS && !releaseIds.includes(selected)) {
       return status(400, 'Unknown perspective')
     }

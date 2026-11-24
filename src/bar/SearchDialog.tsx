@@ -300,11 +300,13 @@ export function SearchDialog({kinds: options, onClose, onSelect}: Props) {
   const items = virtualizer.getVirtualItems()
   const lastItem = items[items.length - 1]
 
-  // Load the next page as the list nears its end, like the Studio's `onEndReached`.
+  // Load the next page as the list nears its end, like the Studio's `onEndReached`. A failed page
+  // waits for Retry (the row below the list) instead of trying again at once.
+  const loadMoreFailed = state.error && results.length > 0
   useEffect(() => {
-    if (!lastItem || loading || nextOffset === null) return
+    if (!lastItem || loading || loadMoreFailed || nextOffset === null) return
     if (lastItem.index >= results.length - 1 - 4) void load(nextOffset)
-  }, [lastItem, loading, nextOffset, results.length, load])
+  }, [lastItem, loading, loadMoreFailed, nextOffset, results.length, load])
 
   function select(index: number) {
     const result = results[index]
@@ -534,6 +536,23 @@ export function SearchDialog({kinds: options, onClose, onSelect}: Props) {
                       </div>
                     ))}
                   </div>
+                  {loadMoreFailed && nextOffset !== null && (
+                    <Flex align="center" justify="center" gap={2} padding={3}>
+                      <Text size={1} muted>
+                        Couldn’t load more
+                      </Text>
+                      <Text size={1} muted>
+                        ·
+                      </Text>
+                      <Button
+                        mode="bleed"
+                        padding={2}
+                        fontSize={1}
+                        text="Retry"
+                        onClick={() => void load(nextOffset)}
+                      />
+                    </Flex>
+                  )}
                 </div>
               )}
             </Card>

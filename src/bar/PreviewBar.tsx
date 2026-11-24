@@ -10,7 +10,7 @@ import SearchIcon from '@sanity/icons/Search'
 import {Button, Card, Flex, Text, ThemeProvider, usePrefersDark} from '@sanity/ui'
 import {Menu, MenuButton} from '@sanity/ui/menu'
 import {buildTheme} from '@sanity/ui/theme'
-import {StrictMode, useCallback, useContext, useEffect, useRef, useState} from 'react'
+import {StrictMode, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react'
 import {AnimatePresence} from 'motion/react'
 import {createRoot} from 'react-dom/client'
 import type {PreviewBarData} from '../core/data'
@@ -38,6 +38,7 @@ import {SearchDialog} from './SearchDialog'
 import {StudioMenuItem} from './StudioMenuItem'
 import {StudioTooltip} from './StudioTooltip'
 import {WorkspaceMenu} from './WorkspaceMenu'
+import {createRefreshWaiter} from './refresh'
 import {fetchCurrentUser, openStudioSignIn, useStudioSession} from './session'
 import {publishedId, store, useDocumentPaneState} from './pane-state'
 
@@ -206,28 +207,27 @@ function useHostPath() {
 /**
  * Asks the host to rerun the storefront's queries after a perspective change and resolves once it
  * reports `refreshed`, so the switcher can keep its spinner until the page shows the new content.
+ * Resolves anyway after `HOST_REFRESH_TIMEOUT_MS`: a page mid-load, a 404 or a page without the
+ * host never answers.
  */
 function useHostRefresh() {
-  const pending = useRef<(() => void)[]>([])
+  const waiter = useMemo(
+    () => createRefreshWaiter(() => postToHost({type: 'sanity-preview-bar:refresh'})),
+    [],
+  )
 
   useEffect(() => {
     function onMessage(message: PreviewBarMessage) {
-      if (message.type === 'sanity-preview-bar:refreshed') {
-        for (const resolve of pending.current.splice(0)) resolve()
-      }
+      if (message.type === 'sanity-preview-bar:refreshed') waiter.settle()
     }
     const unsubscribe = host.subscribe(onMessage)
-    return () => unsubscribe()
-  }, [])
+    return () => {
+      unsubscribe()
+      waiter.settle()
+    }
+  }, [waiter])
 
-  return useCallback(
-    () =>
-      new Promise<void>((resolve) => {
-        pending.current.push(resolve)
-        postToHost({type: 'sanity-preview-bar:refresh'})
-      }),
-    [],
-  )
+  return waiter.request
 }
 
 /**
@@ -660,8 +660,13 @@ function Bar({
   useSearchShortcut(openSearchShortcut, Boolean(data.search))
   const editorParams = studioPerspectiveParams(perspective, data.releases)
   // Signed-in editors get Visual Editor and the Studio layer; everyone else gets Sign in.
-  const {session, refresh: refreshSession} = useStudioSession(data.projectId)
+  // Inside the Studio the editor is signed in already, so the bar doesn't check.
+  const {session, refresh: refreshSession} = useStudioSession(data.projectId, {
+    enabled: native === undefined,
+  })
   const [signingIn, setSigningIn] = useState(false)
+  const cancelSignIn = useRef<(() => void) | null>(null)
+  useEffect(() => () => cancelSignIn.current?.(), [])
   // Inside the Studio (the Visual Editor) the editor is signed in and the Studio's context is
   // there from the first render, so the bar lays out its editor controls at once.
   const signedIn = native !== undefined || session.status === 'signed-in'
@@ -880,10 +885,12 @@ function Bar({
     if (!data.projectId) return
     const projectId = data.projectId
     setSigningIn(true)
-    openStudioSignIn(
+    cancelSignIn.current?.()
+    cancelSignIn.current = openStudioSignIn(
       data.studioPath,
       () => fetchCurrentUser(projectId).then(Boolean),
       () => {
+        cancelSignIn.current = null
         setSigningIn(false)
         void refreshSession()
       },
@@ -1062,7 +1069,7 @@ function Bar({
                 </StudioTooltip>
               </span>
             )}
-            {session.status === 'signed-out' ? (
+            {!signedIn && session.status === 'signed-out' ? (
               <Button
                 mode="default"
                 padding={2}

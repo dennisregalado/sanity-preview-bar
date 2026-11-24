@@ -2,11 +2,14 @@
  * Short, expiring preview links (`/p/<code>`), like Shopify's "Share preview". The preview bar asks
  * `/preview-bar/share` for one while Presentation's "Share this preview" is on; opening it sets the
  * preview cookies and redirects to the stored page. A `PreviewLinkStore` (Workers KV,
- * or anything with a TTL) holds `code → { pathname, perspective, createdAt }` and expires the entry
- * on its own, so no secret ever appears in the URL.
+ * or anything with a TTL) holds `code → { pathname, perspective, createdAt }`, so no secret ever
+ * appears in the URL. The store should expire the entry on its own; the server also checks
+ * `createdAt` against the TTL, so a store that keeps entries forever doesn't make links permanent.
  */
 
-/** Links open for 2 days, like Shopify's preview links. The store deletes the entry when it expires. */
+import {sameOriginPath} from './paths'
+
+/** Links open for 2 days, like Shopify's preview links. */
 export const PREVIEW_LINK_TTL_SECONDS = 2 * 24 * 60 * 60
 
 /** Default route prefix for the short links; disallow it in `robots.txt`. */
@@ -62,27 +65,20 @@ export function previewLinkKey(code: string) {
 }
 
 /**
- * A root-relative path on this site, normalized, or `null`. Rejects protocol-relative `//host` and
- * `/\host` (browsers read a backslash as a slash), absolute URLs, control characters and anything
- * that would resolve to another origin.
+ * A root-relative path on this site, normalized (pathname and query, no hash), or `null`. Rejects
+ * protocol-relative `//host` and `/\host` (browsers read a backslash as a slash), absolute URLs,
+ * control characters and anything that resolves to another origin or to `//host`, before or after
+ * dot segments are removed (`/.//host`, `/%2e%2e//host`). See `sameOriginPath`.
  */
 export function normalizePreviewPathname(value: unknown): string | null {
   if (typeof value !== 'string' || value.length === 0 || value.length > MAX_PATHNAME_LENGTH) {
     return null
   }
-  if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\')) return null
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f]/.test(value)) return null
-
-  const base = 'https://preview-link.invalid'
-  let url: URL
-  try {
-    url = new URL(value, base)
-  } catch {
-    return null
-  }
-  if (url.origin !== base) return null
-  return `${url.pathname}${url.search}`
+  const path = sameOriginPath(value)
+  if (!path) return null
+  // Neither a pathname nor a query can hold `#`, so the hash starts at the first one.
+  const hash = path.indexOf('#')
+  return hash === -1 ? path : path.slice(0, hash)
 }
 
 /** The KV entry and put options for a new link, and when it stops opening. */
@@ -109,6 +105,15 @@ export function createPreviewLink({
     path: `${route}${code}`,
     expiresAt: new Date(now + ttlSeconds * 1000).toISOString(),
   }
+}
+
+/**
+ * When a stored link stops opening (ms since the epoch), from its `createdAt` and the TTL, or
+ * `null` when `createdAt` isn't a date.
+ */
+export function previewLinkExpiry(value: Pick<PreviewLinkValue, 'createdAt'>, ttlSeconds: number) {
+  const createdAt = Date.parse(value.createdAt)
+  return Number.isFinite(createdAt) ? createdAt + ttlSeconds * 1000 : null
 }
 
 /** Reads a stored entry back, or `null` when it isn't one of ours (or its path no longer validates). */

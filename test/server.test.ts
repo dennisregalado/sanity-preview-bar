@@ -163,6 +163,61 @@ describe('share and open', () => {
     expect(await bar.resolveLink('AAAAAAAAAAAA')).toEqual({status: 503})
   })
 
+  test('a link session gets 403; editors and normal preview sessions can share', async () => {
+    const bar = createPreviewBar({brand, links: {store: memoryStore()}})
+    const forbidden = await bar.share(ctx({body: {pathname: '/'}}, {linkSession: true}))
+    expect(forbidden.status).toBe(403)
+    expect((await bar.share(ctx({body: {pathname: '/'}}, {linkSession: false}))).status).toBe(200)
+    expect((await bar.share(ctx({body: {pathname: '/'}}))).status).toBe(200)
+  })
+
+  test('expiry is checked on the server, whatever the store keeps', async () => {
+    const now = Date.parse('2026-11-13T12:00:00Z')
+    vi.useFakeTimers({now, toFake: ['Date']})
+    // A store that ignores the TTL (a Redis or database store without expiry).
+    const entries = new Map<string, unknown>()
+    const store = {
+      get: async (key: string) => entries.get(key) ?? null,
+      put: async (key: string, value: unknown) => void entries.set(key, value),
+    }
+    const bar = createPreviewBar({brand, links: {store, ttlSeconds: 3600}})
+    const response = await bar.share(ctx({body: {pathname: '/products/box'}}))
+    const code = ((await response.json()) as {url: string}).url.split('/p/')[1]
+
+    expect(await bar.resolveLink(code)).toEqual({
+      status: 200,
+      link: {pathname: '/products/box', perspective: 'drafts', expiresAt: now + 3600 * 1000},
+    })
+    let link: {expiresAt: number} | undefined
+    const opened = await bar.openLink(new Request(`${ORIGIN}/p/${code}`), code, (_h, _r, l) => {
+      link = l
+    })
+    expect(opened.status).toBe(307)
+    expect(link).toEqual({expiresAt: now + 3600 * 1000})
+
+    vi.setSystemTime(now + 3600 * 1000)
+    expect(entries.size).toBe(1)
+    expect(await bar.resolveLink(code)).toEqual({status: 404})
+    expect((await bar.openLink(new Request(`${ORIGIN}/p/${code}`), code, () => {})).status).toBe(
+      404,
+    )
+
+    // Entries with a bad or future `createdAt` aren't ours either.
+    entries.set(previewLinkKey('AAAAAAAAAAAA'), {
+      pathname: '/',
+      perspective: 'drafts',
+      createdAt: 'x',
+    })
+    entries.set(previewLinkKey('BBBBBBBBBBBB'), {
+      pathname: '/',
+      perspective: 'drafts',
+      createdAt: new Date(now + 10 * 24 * 3600 * 1000).toISOString(),
+    })
+    expect(await bar.resolveLink('AAAAAAAAAAAA')).toEqual({status: 404})
+    expect(await bar.resolveLink('BBBBBBBBBBBB')).toEqual({status: 404})
+    vi.useRealTimers()
+  })
+
   test('unknown and malformed codes are 404 without touching the store', async () => {
     const store = memoryStore()
     const get = vi.spyOn(store, 'get')

@@ -5,6 +5,7 @@
  * counterpart window only.
  */
 import type {NodeLabel} from './node-labels'
+import {isSameOriginPath} from './paths'
 import {MAX_EDIT_PATH_LENGTH, type SanityNode} from './sanity-node'
 
 /** Most nodes one `describe` or `labels` message carries. */
@@ -327,5 +328,5 @@ function isNonEmptyString(value: unknown): value is string {
 
 /** Same-site paths only: the bar builds links from them and the host navigates to them. */
 function isRootRelative(value: unknown): value is string {
-  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
+  return isSameOriginPath(value)
 }
